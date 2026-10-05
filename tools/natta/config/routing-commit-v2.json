@@ -1,0 +1,6 @@
+{
+  "schema_version": 2,
+  "capability": "commit",
+  "description": "Create one local Git commit containing all current changes in a named registered project, using the deterministic default message. No push, fetch, pull, amend, reset, branch changes, arbitrary Git commands or flags. Custom commit messages are direct CLI only; requests for a custom message or any additional unsupported operation must be no_match.",
+  "routing_description": "Create one local Git commit recording all current changes, including requests to save changes to Git, using the deterministic default message. Select commit for clear local commit intent regardless of whether the project is omitted, ambiguous, unknown, or expressed with different capitalization or a display name; Natta resolves and validates the project separately. Project alternatives or an explicitly undecided target are unresolved parameters, not unsupported operations; clear local commit intent still selects commit. No push, fetch, pull, amend, reset, branch changes, arbitrary Git commands or flags. Custom commit messages are direct CLI only; requests for a custom message or any additional unsupported operation must be no_match."
+}

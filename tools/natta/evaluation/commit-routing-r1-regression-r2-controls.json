@@ -1,0 +1,24 @@
+{
+  "identity": "commit-routing-r1-regression-r2",
+  "corpus_identity": "commit-routing-holdout-r1",
+  "total_cases": 8,
+  "corpus_sha256": "01a12725b5e3e7d180635d19003058ab069d04446b92aab214e514c92aa9ab8a",
+  "provider_controls_sha256": {
+    "AGENTS.md": "9b8ed44f1329b79c26e36e660868f3e4f4d2264cc10d32fa3b06a9a51a5a0b97",
+    "capabilities.json": "f422f42c44b3350b6dcd21815c8125ca8376ffbfc2e504b81d4d4188b87f5b92",
+    "output-schema.json": "5101591346248ea800224625f822633047f19a58775d7eea7ff079b2e30be6d1"
+  },
+  "predeclared_acceptance": {
+    "complete_cases": 8,
+    "provider_failures": 0,
+    "minimum_exact_accuracy": 1.0,
+    "unsupported_rejection": 1.0,
+    "adversarial_rejection": 1.0,
+    "accepted_unknown_capabilities": 0,
+    "accepted_unknown_projects": 0
+  },
+  "methodology": {
+    "requests": "One gpt-6-luna call per frozen case, file order, no retries/fallback or execution. Exact authorization required; exclusive private output files.",
+    "evidence": "Tuned regression evidence only; corpus and original controls/results remain unchanged."
+  }
+}

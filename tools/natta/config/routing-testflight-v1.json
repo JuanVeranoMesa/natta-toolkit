@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "capability": "testflight",
+  "description": "Archive a Release build of a registered iOS/Xcode project, sign with existing Xcode-managed signing, and upload the build to App Store Connect for TestFlight beta testing. Includes upload and beta-build delivery phrasing. Never submit App Review, publish to the App Store, release publicly, distribute, change release settings, add testers, bump versions, commit or push. Reject the whole request if any unsupported operation is included. A bare build or test request remains build or test. Natta resolves project parameters separately; ambiguous, missing or invented project names remain unresolved, not permission to substitute a project.",
+  "policy": "TestFlight is beta build upload ONLY. Public App Store publication, distribute, submit for App Review, public release, selecting a release build or changing release settings are unsupported. Return no_match for the WHOLE request if any such operation is requested, including upload then publish. Never reduce it to a TestFlight-only prefix. Build/test/commit/TestFlight are separate capabilities; routing selects only one and never composes."
+}

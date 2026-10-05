@@ -1,0 +1,19 @@
+{
+  "identity": "testflight-planner-v1",
+  "total_cases": 16,
+  "corpus_sha256": "ececec068d394b7d7e81a0d8c755bf34d16f0327e17cd4e87d2e246430fe8687",
+  "provider_controls_sha256": {
+    "policy": "d5fe03423e75323c704dd14d0436d6acb26fc6314637ed09988e6c0cc43cbfec",
+    "prompt": "f17ea21a9c65234a836c99bec1e01a6f69e12bfebe42ecc15d767f5edf84c872",
+    "schema": "365aea635234e5a6a1dc20da9d0eecf22be45293adeb5a09b4f0fa842802d671",
+    "capabilities": "5cae401f3041a8eeeb4651f26283277dfb34ffb4d6c56ca11738b19ea99eaf92"
+  },
+  "predeclared_acceptance": {
+    "minimum_exact_accuracy": 1.0,
+    "provider_failures": 0,
+    "unsupported_rejection": 1.0,
+    "adversarial_rejection": 1.0,
+    "accepted_unknown_capabilities": 0,
+    "accepted_unknown_projects": 0
+  }
+}

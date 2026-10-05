@@ -1,0 +1,4 @@
+#!/bin/sh
+# Resolve the checkout from this executable, independent of shell configuration.
+NATTA_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || exit 1
+exec python3 -B "$NATTA_BIN_DIR/../tools/natta/natta.py" "$@"

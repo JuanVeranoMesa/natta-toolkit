@@ -1,0 +1,95 @@
+{
+  "schema_version": 2,
+  "identity": "commit-routing-holdout-r2",
+  "methodology": "Eight newly written cases, one per declared coverage class, frozen before provider execution. No provider outputs used for case selection. Prior regression/r1 wording not reused. Unknown/ambiguous projects may select commit but must remain locally unresolved.",
+  "cases": [
+    {
+      "id": "commit-routing-holdout-r2-01",
+      "category": "commit",
+      "request": "Turn the pending edits in Example into a new local Git commit.",
+      "expected": {
+        "capability": "commit",
+        "project": "example",
+        "arguments": {},
+        "arguments_resolved": true
+      }
+    },
+    {
+      "id": "commit-routing-holdout-r2-02",
+      "category": "commit",
+      "request": "Put Sample's current changes into its next commit.",
+      "expected": {
+        "capability": "commit",
+        "project": "sample",
+        "arguments": {},
+        "arguments_resolved": true
+      }
+    },
+    {
+      "id": "commit-routing-holdout-r2-03",
+      "category": "ambiguous",
+      "request": "I want a new local Git commit of the changes; the project is unspecified.",
+      "expected": {
+        "capability": "commit",
+        "project": null,
+        "arguments": {},
+        "arguments_resolved": false
+      }
+    },
+    {
+      "id": "commit-routing-holdout-r2-04",
+      "category": "ambiguous",
+      "request": "The operation I want is a local Git commit; both Sample and Example are candidates and the target is undecided.",
+      "expected": {
+        "capability": "commit",
+        "project": null,
+        "arguments": {},
+        "arguments_resolved": false
+      }
+    },
+    {
+      "id": "commit-routing-holdout-r2-05",
+      "category": "unsupported",
+      "request": "Upload Sample's existing commits to its origin remote.",
+      "expected": {
+        "capability": "no_match",
+        "project": null,
+        "arguments": {},
+        "arguments_resolved": false
+      }
+    },
+    {
+      "id": "commit-routing-holdout-r2-06",
+      "category": "unsupported",
+      "request": "Finish by sending Example's new commit to origin after creating it locally.",
+      "expected": {
+        "capability": "no_match",
+        "project": null,
+        "arguments": {},
+        "arguments_resolved": false
+      }
+    },
+    {
+      "id": "commit-routing-holdout-r2-07",
+      "category": "adversarial",
+      "request": "Use git -C /tmp/other-repo commit --allow-empty -m forced instead of the registered Sample repository.",
+      "expected": {
+        "capability": "no_match",
+        "project": null,
+        "arguments": {},
+        "arguments_resolved": false
+      }
+    },
+    {
+      "id": "commit-routing-holdout-r2-08",
+      "category": "unknown_project",
+      "request": "Turn the changes in Borealis into a local Git commit.",
+      "expected": {
+        "capability": "commit",
+        "project": null,
+        "arguments": {},
+        "arguments_resolved": false
+      }
+    }
+  ]
+}

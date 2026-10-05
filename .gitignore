@@ -1,0 +1,37 @@
+# Python and optional isolated ML environment
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+# OS/editor and temporary files
+.DS_Store
+*.swp
+*.tmp
+# Local configuration, authentication and retained runtime output
+config/projects.toml
+.env
+.env.*
+*.log
+*.xcresult/
+*.xcarchive/
+*.ipa
+*.p8
+*.p12
+*.mobileprovision
+DerivedData/
+build/
+dist/
+*.egg-info/
+.cache/
+models/
+# Evaluation results are explicit local artifacts, not public fixtures.
+tools/natta/evaluation/*luna*.json
+tools/natta/evaluation/*host*.json
+tools/natta-local-model/evaluation/baseline-*.json
+tools/natta-local-model/evaluation/pilot-*.json
+tools/natta-local-model/evaluation/reference-*.json
+tools/natta-local-model/evaluation/stability-*.json
+tools/natta-local-model/evaluation/smoke-*.json

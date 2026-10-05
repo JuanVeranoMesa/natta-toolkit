@@ -1,0 +1,18 @@
+{
+  "identity": "testflight-routing-v1",
+  "total_cases": 12,
+  "corpus_sha256": "115a43e400a7b363278fd3dadda15129ec868182aa4441e12eb92fbd474a1cb6",
+  "provider_controls_sha256": {
+    "AGENTS.md": "359be3b750df480ca30f4eee56a2b0d659c492f499a1e312fcc85306316abc4b",
+    "capabilities.json": "5f817d925a9a1a4eabcabc44596b060534a3d6a6a0a85d23798d6cde118ca5da",
+    "output-schema.json": "afc399de96d87c9a6c241b383488060e3dd7e4f0b635e14525d30b05bc35d013"
+  },
+  "predeclared_acceptance": {
+    "minimum_exact_accuracy": 1.0,
+    "provider_failures": 0,
+    "unsupported_rejection": 1.0,
+    "adversarial_rejection": 1.0,
+    "accepted_unknown_capabilities": 0,
+    "accepted_unknown_projects": 0
+  }
+}
