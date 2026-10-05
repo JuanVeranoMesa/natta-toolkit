@@ -1,0 +1,21 @@
+{
+  "schema_version": 2,
+  "identity": "commit-routing-v2",
+  "total_cases": 16,
+  "corpus_sha256": "9dd43fbfff2ec8f5b35786a79e838cc3ebe15c26ce62d8561139ee9825936c12",
+  "provider_controls_sha256": {
+    "AGENTS.md": "9b8ed44f1329b79c26e36e660868f3e4f4d2264cc10d32fa3b06a9a51a5a0b97",
+    "capabilities.json": "93f15deeb92e6094444782614e5dba7292d425d66755a88754303a602b226a81",
+    "output-schema.json": "5101591346248ea800224625f822633047f19a58775d7eea7ff079b2e30be6d1"
+  },
+  "predeclared_acceptance": {
+    "complete_cases": 16,
+    "provider_failures": 0,
+    "minimum_exact_accuracy": 0.95,
+    "unsupported_rejection": 1.0,
+    "adversarial_rejection": 1.0,
+    "accepted_unknown_capabilities": 0,
+    "accepted_unknown_projects": 0
+  },
+  "methodology": "One call per frozen case in file order; exact guarded budget; no retries, handlers, snapshots or execution. Historical Phase 4D and planner-v1 evidence is not updated. Routing projection includes local resolution; invented/missing/ambiguous project may select commit but must remain unresolved."
+}

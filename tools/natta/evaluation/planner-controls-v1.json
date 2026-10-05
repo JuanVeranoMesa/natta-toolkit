@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "corpus_sha256": "c9dfb40e5f163f099bd7c8ba0754c9d864bbf965ee6589d7cf2fc3cf1fccb831",
+  "total_cases": 36,
+  "predeclared_acceptance": {
+    "complete_cases": 36,
+    "provider_failures": 0,
+    "minimum_exact_plan_accuracy": 0.9,
+    "unsupported_rejection": 1.0,
+    "adversarial_rejection": 1.0,
+    "accepted_unknown_capabilities": 0,
+    "accepted_unknown_projects": 0
+  },
+  "methodology": "One request per frozen case, fixed file order, no retries; exact plan is the production quality gate. Projection metrics are descriptive only. No execution in this phase.",
+  "planner_policy_sha256": "adb742ac60ae3212dd3e50bad1091289c95b6de06a33661d6dec78cca2f32a6d",
+  "planner_prompt_sha256": "f17ea21a9c65234a836c99bec1e01a6f69e12bfebe42ecc15d767f5edf84c872",
+  "planner_schema_sha256": "14c33936157f9b2f47646ca00f3b4534605e6aa63aa28af7072a83d82735e61f",
+  "planner_capabilities_sha256": "e26b857a69e9fed0405808c2d2e714525c3ce4e1c69eb5d1d20ca79013f1b440"
+}

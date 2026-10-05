@@ -1,0 +1,30 @@
+schema_version = 1
+
+# A repository containing Python code; generic-git does not run pytest/build.
+[[projects]]
+alias = "example"
+aliases = ["example-app"]
+name = "Example App"
+path = "~/Projects/example"
+type = "generic-git"
+# Configure only documents that actually exist:
+# agents = "AGENTS.md"
+# architecture = "docs/ARCHITECTURE.md"
+
+# Fictitious Xcode registration: edit paths/schemes/tests for your own project.
+[[projects]]
+alias = "sample"
+aliases = ["sampleapp", "sample-app"]
+name = "Sample App"
+path = "~/Projects/sample"
+type = "ios-xcode"
+version_source = "SampleApp.xcodeproj/project.pbxproj"
+
+[projects.execution]
+project = "SampleApp.xcodeproj" # Or workspace = "SampleApp.xcworkspace", never both.
+scheme = "SampleApp"
+configuration = "Debug"
+unit_targets = ["SampleAppTests"]
+ui_targets = ["SampleAppUITests"]
+test_targets = ["SampleAppTests"]
+ui_tests = ["SampleAppUITests/SampleAppUITests/testHomeSmoke"]

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "concise": {
+    "projects": "List registered projects and their aliases and paths.",
+    "status": "Inspect a project's current Git state, version and document paths.",
+    "context": "Show compact project orientation, sharing the current status fields.",
+    "diff": "Inspect changed paths and staged/unstaged Git diff statistics.",
+    "doctor": "Diagnose Natta's environment, configuration and dependency availability.",
+    "build": "Compile a registered project's development simulator build without running tests.",
+    "test": "Run a registered project's configured normal automated test suite.",
+    "verify": "Run a registered project's defined validation workflow at level 1, 2 or 3.",
+    "no_match": "None of the offered operations safely matches, or the request is too ambiguous."
+  },
+  "precise": {
+    "projects": "List Natta's registered projects, showing alias, display name, adapter type and repository path. This lists projects rather than inspecting one project's state.",
+    "status": "Read-only project status: branch, clean/dirty working tree, latest commit, version/build and canonical document paths/presence. Shares the context renderer; does not read document contents or execute checks.",
+    "context": "Provide compact orientation for a registered project: identity, path, type, branch, working-tree state, latest commit, version/build and document paths/presence. Identical fields to status today; no document contents, AI explanation or context packaging.",
+    "diff": "Read-only inspection of a registered project's changed paths, including untracked filenames, and staged/unstaged Git diff statistics. Does not read untracked content, stage, commit, explain or modify changes.",
+    "doctor": "Diagnose Natta configuration, registered project prerequisites, canonical files, Git, Xcode metadata, Codex availability and optional local model availability. Inspect environment health without building, running tests, installing or repairing anything.",
+    "build": "Run the registered deterministic development build to compile a project or reproduce a compilation failure. For Example and Sample this is the Debug scheme for generic iOS Simulator with signing disabled. No test execution or source repairs.",
+    "test": "Run the registered normal automated test workflow: Example's full unit suite, or Sample's full unit and UI suites, on an available compatible simulator. This runs existing tests, not writing tests or choosing verification levels.",
+    "verify": "Run the defined project validation workflow at requested level 1, 2 or 3: simulator build and Git diff checks; stronger levels add unit/UI smoke tests and syntax checks. Level 3 includes explicitly unavailable/skipped device/manual checks, not release certification.",
+    "no_match": "Select when no single offered operation safely fulfills the request, including insufficient intent, explanation, code editing, provider launch, installation, destructive actions, deployment or multi-operation requests. This is an explicit bounded candidate, not intrinsic model abstention."
+  }
+}

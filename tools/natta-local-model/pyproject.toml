@@ -1,0 +1,18 @@
+[project]
+name = "natta-local-model"
+version = "0.1.0"
+description = "Isolated local bounded-decision runtime; no routing or execution"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "openjev",
+  "torch>=2.0",
+  # Qwen3 is not supported by the upstream OpenJEV minimum (4.40).
+  "transformers>=4.51.0",
+  "huggingface-hub",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+openjev = { git = "https://github.com/lookski/openjev", rev = "67eedd02d8863dfe37fcd391c55ce2a7b6d82e37" }
