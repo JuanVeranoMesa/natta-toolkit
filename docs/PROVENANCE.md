@@ -28,7 +28,8 @@ packages. Review upstream notices when installing or redistributing dependencies
 | huggingface-hub | [Upstream license](https://github.com/huggingface/huggingface_hub/blob/main/LICENSE), Apache-2.0 | Optional dependency, not vendored |
 | Python / Git / uv / Codex / Xcode | Separately installed tools with their own terms | No tool binaries or authentication redistributed |
 
-The upstream license verification status is recorded in the local review report.
+Each row's pinned link is the public reference for that component's license;
+review it directly before installing or redistributing the component.
 The lock's transitive dependencies remain upstream-owned and retain their respective
 licenses. Codex CLI/provider services and Apple/Xcode tools and services remain
 subject to their respective terms; Natta Toolkit grants no rights over them.

@@ -5,10 +5,14 @@
 Python 3.11+ (uses `tomllib`, modern type syntax and pathlib methods), standard
 library only. Tests use `unittest` and disposable Git repositories. No pip packages
 are needed. Git must support `--no-optional-locks`, porcelain v1 `-z`, root/branch
-inspection, diff checks, local plumbing and the config flags used by commits.
-The extraction validation records exact installed versions in the review report;
-command presence alone is not a compatibility guarantee. No fabricated Git/Xcode
-minimum version is claimed.
+inspection, diff checks, attribute inspection (`check-attr -z --stdin`), local
+plumbing and the config flags used by commits. Command presence alone is not a
+compatibility guarantee. No fabricated Git/Xcode minimum version is claimed.
+
+Python versions on which the full test suite and `natta --help` have actually run
+(macOS): 3.12, 3.13 and 3.14. Python 3.11 is the documented minimum and uses the
+same eager-annotation semantics as 3.12/3.13, but no 3.11 run has been recorded
+yet; a real 3.11 run remains a release-checklist item.
 
 The POSIX `bin/natta` wrapper requires `sh`, `dirname`, and `python3` on PATH.
 Its source paths resolve within this checkout. No dotfiles, shell aliases or global

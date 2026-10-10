@@ -92,8 +92,9 @@ class ProtectedSnapshotTests(unittest.TestCase):
 
     def test_external_filter_and_hidden_index_entries_fail_closed(self):
         self.git('config','filter.bad.clean','arbitrary command')
-        with self.assertRaises(execution.NattaError):self.capture()
-        self.git('config','--unset','filter.bad.clean')
+        (self.repo/'.git/info').mkdir(exist_ok=True);(self.repo/'.git/info/attributes').write_text('tracked filter=bad\n')
+        with self.assertRaises(execution.ExternalFilterConfigured):self.capture()
+        self.git('config','--unset','filter.bad.clean');(self.repo/'.git/info/attributes').unlink()
         for flag,undo in (('--assume-unchanged','--no-assume-unchanged'),('--skip-worktree','--no-skip-worktree')):
             self.git('update-index',flag,'tracked')
             with self.assertRaises(execution.NattaError):self.capture()
@@ -162,6 +163,18 @@ class RuntimeIntegrationTests(unittest.TestCase):
             self.assertFalse(any(h.called for h in handlers.values()))
             self.assertEqual(capture.call_count,1)
             self.assertEqual(result['effect_verification']['reason'],'pre_execution_verification_failed')
+
+    def test_applied_external_filter_refusal_is_specific(self):
+        with patch.object(effects,'capture',side_effect=execution.ExternalFilterConfigured()):
+            code,result,handlers=self.invoke('Build Example','build',True)
+        self.assertEqual((code,result['status'],result['error']),(1,'verification_unavailable','external_filter_configured'))
+        self.assertEqual(result['effect_verification']['reason'],'external_filter_configured')
+        self.assertFalse(result['execution_started']);self.assertFalse(any(h.called for h in handlers.values()))
+        handlers=self.bindings()
+        with patch.object(effects,'capture',side_effect=[self.evidence(),execution.ExternalFilterConfigured()]):
+            code,result,_=self.invoke('Build Example','build',True,handlers)
+        self.assertEqual((code,result['status'],result['error']),(1,'verification_unavailable','external_filter_configured'))
+        self.assertTrue(result['execution_started'])
 
     def test_post_failure_preserves_handler_facts(self):
         for exit_code in (0,7):

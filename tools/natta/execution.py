@@ -20,6 +20,51 @@ class NattaError(Exception):
     pass
 
 
+class ExternalFilterConfigured(NattaError):
+    """A configured clean/process filter applies to repository paths."""
+    code = 'external_filter_configured'
+
+    def __init__(self):
+        super().__init__('A Git clean/process filter applies to repository files; Natta '
+                         'refuses to execute it as part of protected verification')
+
+
+class SubmoduleUnsupported(NattaError):
+    """The index contains a gitlink; protected verification does not support submodules."""
+    code = 'submodule_unsupported'
+
+    def __init__(self):
+        super().__init__('Protected/workflow verification does not support repositories '
+                         'containing Git submodules')
+
+
+PROTECTED_REFUSALS = (ExternalFilterConfigured, SubmoduleUnsupported)
+
+
+def refusal_message(code):
+    """Fixed explanation for a protected-verification refusal code, else None."""
+    return next((str(kind()) for kind in PROTECTED_REFUSALS if kind.code == code), None)
+
+
+def git_environment():
+    """The one Git child environment: ordinary process state, no ambient Git.
+
+    GIT_* can select another repository, index, object store or configuration
+    (GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, GIT_CONFIG_*, ...). Natta names the
+    repository with -C, so none are inherited; only fixed Natta controls apply.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+    env.update(GIT_OPTIONAL_LOCKS='0', GIT_TERMINAL_PROMPT='0', GIT_PAGER='cat')
+    return env
+
+
+def child_environment(command):
+    """Workflow child environment; Git children use git_environment()."""
+    if command and Path(command[0]).name == 'git':
+        return git_environment()
+    return {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_PAGER": "cat"}
+
+
 @dataclass(frozen=True)
 class Check:
     name: str
@@ -42,8 +87,7 @@ class Result:
 
 def run(command, cwd, capture=False, timeout=None):
     return subprocess.run(list(command), cwd=cwd, capture_output=capture,
-                          text=True, timeout=timeout,
-                          env={**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_PAGER": "cat"})
+                          text=True, timeout=timeout, env=child_environment(command))
 
 
 def query(command, cwd, runner=run):
@@ -62,8 +106,10 @@ def snapshot(cwd, *, protected=False, baseline=None):
     if protected:
         return protected_snapshot(cwd, baseline=baseline)
     base = ("git", "--no-optional-locks", "-C", str(cwd))
+    env = git_environment()
+    refuse_applied_filters(cwd)  # git status would run an applied clean/process filter.
     def read(*args):
-        return subprocess.check_output((*base, *args))
+        return subprocess.check_output((*base, *args), env=env)
     paths = set(read("ls-files", "--cached", "--others", "-z").split(b"\0")) - {b""}
     hashes = {}
     for raw in sorted(paths):
@@ -72,7 +118,7 @@ def snapshot(cwd, *, protected=False, baseline=None):
         hashes[raw] = hashlib.sha256(content).hexdigest() if content is not None else None
     gitdir = Path(os.fsdecode(read("rev-parse", "--absolute-git-dir")).strip())
     index = gitdir / "index"
-    commit = subprocess.run((*base, "rev-parse", "--verify", "HEAD"), capture_output=True)
+    commit = subprocess.run((*base, "rev-parse", "--verify", "HEAD"), capture_output=True, env=env)
     return {"commit": (commit.returncode, commit.stdout), "files": hashes, "status": read("status", "--porcelain=v1", "-z", "--untracked-files=all"),
             "head": read("symbolic-ref", "-q", "HEAD") if (gitdir / "HEAD").read_text().startswith("ref:") else (gitdir / "HEAD").read_bytes(),
             "index": index.read_bytes() if index.exists() else None}
@@ -92,7 +138,48 @@ class ProtectedSnapshot:
     worktree_contents: tuple[tuple[bytes, str | None], ...] | None = None
 
 
-def protected_snapshot(cwd, *, baseline=None, content_paths=None, git_env=None):
+def refuse_applied_filters(cwd):
+    """Raise SubmoduleUnsupported for any index gitlink, else ExternalFilterConfigured
+    if a configured clean/process filter applies.
+
+    Never runs an external filter: configured `filter.<driver>.clean/process`
+    names (any config scope) are matched against `check-attr` for tracked and
+    nonignored untracked paths. check-attr resolves .gitattributes,
+    info/attributes, global/system attributes and macros; unset/unspecified/
+    valueless filters select no driver. Configured but unused drivers are allowed.
+    Submodules are never inspected: a submodule's own config is invisible here
+    and diff/status would recurse into it, so any gitlink (mode 160000) is
+    refused first, from the index alone, before any other Git query.
+    """
+    env = git_environment()
+    base = ('git', '--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-C', str(cwd))
+    def bounded(args, payload=b'', optional=False):
+        process = subprocess.run((*base, *args), cwd=Path(cwd), input=payload,
+                                 capture_output=True, timeout=30, env=env)
+        if (process.returncode and not (optional and process.returncode == 1)
+                or len(process.stdout) > 64 * 1024 * 1024):
+            raise NattaError('Protected Git snapshot unavailable')
+        return process.stdout
+    # Reads the index only (no worktree refresh, no recursion), so no filter runs.
+    if any(entry.startswith(b'160000 ') for entry in bounded(('ls-files', '--stage', '-z')).split(b'\0')):
+        raise SubmoduleUnsupported()
+    configured = {key[len(b'filter.'):key.rindex(b'.')] for key in
+                  (record.split(b'\n', 1)[0] for record in bounded(
+                      ('config', '-z', '--get-regexp', r'^filter\..*\.(clean|process)$'),
+                      optional=True).split(b'\0') if record)}
+    if not configured:
+        return
+    paths = bounded(('ls-files', '--cached', '--others', '--exclude-standard', '-z'))
+    if len(paths) > 16 * 1024 * 1024:
+        raise NattaError('Protected snapshot exceeds bounded evidence limit')
+    if not paths:
+        return
+    fields = bounded(('check-attr', '-z', '--stdin', 'filter'), paths).split(b'\0')
+    if {fields[i + 2] for i in range(0, len(fields) - 2, 3)} & configured:
+        raise ExternalFilterConfigured()
+
+
+def protected_snapshot(cwd, *, baseline=None, content_paths=None):
     """Bounded Git evidence; never reads untracked contents. No index refresh.
 
     Compare working-tree diff against a FIXED baseline across both captures.
@@ -100,7 +187,7 @@ def protected_snapshot(cwd, *, baseline=None, content_paths=None, git_env=None):
     contents. Membership transitions are conservatively project-state changes.
     """
     cwd = Path(cwd).resolve()
-    env = {**(os.environ if git_env is None else git_env), 'GIT_OPTIONAL_LOCKS':'0', 'GIT_PAGER':'cat'}
+    env = git_environment()
     base = ('git', '--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-C', str(cwd))
     def read(*args, digest=False, optional=False):
         limit = 64 * 1024 * 1024 if digest else 1024 * 1024
@@ -156,8 +243,7 @@ def protected_snapshot(cwd, *, baseline=None, content_paths=None, git_env=None):
                 if size > 64 * 1024 * 1024: raise NattaError('Protected index exceeds evidence limit')
                 hasher.update(chunk)
         index = hasher.hexdigest()
-    if read('config', '--get-regexp', r'^filter\..*\.(clean|process)$', optional=True):
-        raise NattaError('Protected snapshot refuses external clean/process filters')
+    refuse_applied_filters(cwd)  # Never run an external clean/process filter.
     entries = read('ls-files', '-v', '-z').split(b'\0')
     if any(entry and (entry[:1].islower() or entry[:1] == b'S') for entry in entries):
         raise NattaError('Protected snapshot refuses assume-unchanged/skip-worktree entries')
@@ -255,7 +341,7 @@ class ExecutionDirectory:
         stem = re.sub(r"[^A-Za-z0-9_-]+", "-", name or f"Discovery-{len(self.logs) + 1}").strip("-")
         log_path = self.path / (stem + ".log")
         self.logs.append(log_path)
-        env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_PAGER": "cat"}
+        env = child_environment(command)
         with log_path.open("wb") as output:
             if capture:
                 # Discovery needs separate stdout for JSON; these queries already

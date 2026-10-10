@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass, field, replace
 import commits
 import testflight
 import adapters
-from execution import Check, NattaError, execute, render, snapshot, assert_integrity, ExecutionDirectory
+from execution import Check, NattaError, execute, render, snapshot, assert_integrity, ExecutionDirectory, git_environment
 import os
 from pathlib import Path
 import re
@@ -30,6 +30,11 @@ ROOT = Path(__file__).resolve().parent
 WORKSPACE_ROOT = ROOT.parent.parent
 DEFAULT_REGISTRY = Path.home() / ".config/natta/projects.toml"
 DOCS = ("agents", "architecture", "roadmap")
+# Commands with an explicit main() branch. Any other parsed command fails closed;
+# it never falls through to inspection or another capability.
+DIRECT_DISPATCH = frozenset(("do", "plan", "confinement", "route", "execute", "codex", "projects",
+                             "doctor", "testflight", "commit", "build", "test", "verify",
+                             "status", "context", "diff"))
 
 
 @dataclass(frozen=True)
@@ -110,11 +115,12 @@ def launch_codex(target):
 
 
 def git(project, *args):
-    # No shell, optional index refresh, pager, external diff or text conversion.
+    # No shell, optional index refresh, pager, external diff or text conversion,
+    # and no ambient GIT_* repository/index/config routing.
     try:
         result = subprocess.run(
             ["git", "--no-optional-locks", "-C", str(project.path), *args],
-            capture_output=True, env={**os.environ, "GIT_PAGER": "cat"}, timeout=30,
+            capture_output=True, env=git_environment(), timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise NattaError(f"Git unavailable for {project.alias}: {exc}") from exc
@@ -141,12 +147,16 @@ def parse_status(raw):
     return entries
 
 
-def git_state(project):
+def repository_root(project):
     if not project.path.is_dir():
         raise NattaError(f"Project path missing: {project.path}")
     top = Path(git(project, "rev-parse", "--show-toplevel").strip()).resolve()
     if top != project.path:
         raise NattaError(f"Project path is not a repository root: {project.path}")
+
+
+def git_state(project):
+    repository_root(project)
     branch = git(project, "branch", "--show-current").strip() or "detached HEAD"
     return branch.strip(), parse_status(git(project, "status", "--porcelain=v1", "-z", "--untracked-files=all"))
 
@@ -379,7 +389,9 @@ def handle_inspection(operation, projects, project, arguments):
 
 def handle_workflow(operation, projects, project, arguments, *, verbose=False, log=False, protected_state=False):
     level = dict(arguments).get('level')
-    git_state(project)  # Require a repository root before any workflow.
+    # Require a repository root before any workflow. Not git_state(): its
+    # git status could run an applied clean/process filter that snapshot refuses.
+    repository_root(project)
     before = snapshot(project.path, protected=True) if protected_state else snapshot(project.path)
     session = ExecutionDirectory(projects, project, operation, level,
                                  verbose=verbose, log=log)
@@ -470,6 +482,8 @@ def main(argv=None):
     else:
         args = parser.parse_args(argv)
     try:
+        if args.command not in DIRECT_DISPATCH:
+            raise unhandled_command(args.command)
         if args.command == 'do':
             import compound_execution
             result = compound_execution.run(args.goal, parser, lambda: load_registry(args.registry),
@@ -537,13 +551,20 @@ def main(argv=None):
             arguments = (('level', args.level),) if args.command == 'verify' else ()
             return handle_workflow(args.command, projects, project, arguments,
                                    verbose=args.verbose, log=args.log).exit_code
-        return handle_inspection(args.command, projects, project, ()).exit_code
+        if args.command in ("status", "context", "diff"):
+            return handle_inspection(args.command, projects, project, ()).exit_code
+        raise unhandled_command(args.command)
     except (NattaError, OSError) as exc:
         if getattr(args, 'json', False):
             print(json.dumps(cli_failure(args), sort_keys=True))
         else:
             print(f"natta: {exc}", file=sys.stderr)
         return 1
+
+
+def unhandled_command(command):
+    from execution import bounded_text
+    return NattaError(f"Internal configuration error: no direct handler for command {bounded_text(str(command), 64)!r}")
 
 
 def cli_failure(args):

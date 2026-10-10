@@ -1,6 +1,7 @@
 # Source architecture equivalence
 
-The derivative preserves the verified source v1 architecture. These are extraction
+Historical record of the v1 extraction, not a current quality claim. The public
+derivative preserved the source v1 architecture; these were extraction
 transformations, not new provider, policy, executor or capability architecture.
 
 | Personal v1 component | Open-source component | Change |

@@ -1,11 +1,12 @@
 # Evaluation and extraction provenance
 
-The source implementation's user-verified regression baseline is 441 passed,
-0 failed, 0 skipped. The public derivative retains all 447 test methods and all
-architectural safety contracts. No source application is needed by tests. The supplied verified baseline was
-441; static inventories of the current source and derivative both contain exactly
-447 test methods. No test method was added or removed during extraction. The
-source baseline count and current source inventory are reported separately.
+Historical record of the v1 extraction (not a current quality claim): the source
+implementation's regression baseline was reported as 441 passed, 0 failed,
+0 skipped, while static inventories of the source and the public derivative each
+contained exactly 447 test methods. No test method was added or removed during
+extraction, and all architectural safety contracts were retained. No source
+application is needed by tests. Later public changes add their own tests; see the
+README for the current suite.
 
 Published evaluation definitions include core planner/commit/TestFlight corpora
 and controls, and local-model selection corpus/descriptions/Phase 4C controls.

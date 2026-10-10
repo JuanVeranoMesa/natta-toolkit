@@ -1,3 +1,4 @@
+import argparse
 import contextlib
 import io
 import json
@@ -49,6 +50,41 @@ type = "{kind}"
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = natta.main(["--registry", str(self.registry), *args])
         return code, out.getvalue(), err.getvalue()
+
+    def parser_with(self, command, *, project=True):
+        real = natta.make_parser
+        def make():
+            parser = real()
+            commands = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+            added = commands.add_parser(command)
+            if project:
+                added.add_argument("project")
+            return parser
+        return make
+
+    def test_direct_dispatch_covers_exactly_the_parser_commands(self):
+        commands = next(a for a in natta.make_parser()._actions if isinstance(a, argparse._SubParsersAction))
+        self.assertEqual(set(commands.choices), natta.DIRECT_DISPATCH)
+
+    def test_unhandled_direct_command_fails_closed_without_any_handler(self):
+        handlers = ("handle_inspection", "handle_workflow", "handle_projects", "handle_doctor",
+                    "launch_codex", "orientation", "git_state", "git", "prepare_route")
+        cases = (("phantom", ("phantom", "app"), True, natta.DIRECT_DISPATCH),
+                 ("phantom", ("phantom",), False, natta.DIRECT_DISPATCH),
+                 # Listed as dispatchable but no branch: still never falls through to status.
+                 ("phantom", ("phantom", "app"), True, natta.DIRECT_DISPATCH | {"phantom"}))
+        for command, argv, project, dispatch in cases:
+            with self.subTest(argv=argv, listed=command in dispatch), contextlib.ExitStack() as stack:
+                stack.enter_context(patch.object(natta, "make_parser", self.parser_with(command, project=project)))
+                stack.enter_context(patch.object(natta, "DIRECT_DISPATCH", dispatch))
+                mocks = [stack.enter_context(patch.object(natta, name, side_effect=AssertionError(name))) for name in handlers]
+                for module, name in ((natta.commits, "create"), (natta.testflight, "execute"),
+                                     (natta.semantic_execution, "dispatch"), (natta.routing, "select")):
+                    mocks.append(stack.enter_context(patch.object(module, name, side_effect=AssertionError(name))))
+                code, out, err = self.invoke(*argv)
+                self.assertEqual((code, out), (1, ""))
+                self.assertIn("no direct handler for command 'phantom'", err)
+                self.assertFalse(any(mock.called for mock in mocks))
 
     def test_registry_lookup_relative_path(self):
         self.assertEqual(self.project.path, self.repo)
