@@ -287,6 +287,29 @@ test_targets=["ExampleTests"]
         self.assertFalse(data['execution_started']);self.assertFalse(data['uploaded'])
         self.assertFalse(any('archive' in a or '-exportArchive' in a or '-allowProvisioningUpdates' in a for a,k in self.commands))
 
+    def test_applied_external_filter_refused_before_apple_commands(self):
+        marker=self.root/'filter-executed'
+        self.git('config','filter.custom.clean','touch '+json.dumps(str(marker))+' && cat')
+        (self.repo/'.git/info').mkdir(exist_ok=True);(self.repo/'.git/info/attributes').write_text('* filter=custom\n')
+        result=self.execute()
+        self.assertEqual((result.status,result.error,result.execution_started),('verification_failed','external_filter_configured',False))
+        self.assertEqual(result.effect_verification.reason,'external_filter_configured')
+        self.assertIn('clean/process filter applies',tf.render(result,self.project))
+        self.assertEqual(self.commands,[]);self.assertFalse(marker.exists())
+
+    def test_submodule_local_filter_refused_before_apple_commands(self):
+        import test_git_filters as filters
+        home=self.root/'home';home.mkdir();marker=self.root/'filter-executed'
+        with patch.dict(os.environ,{'HOME':str(home),'XDG_CONFIG_HOME':str(home/'.config')}):
+            data=filters.add_filtered_submodule(self.repo,self.root/'source','data.txt filter=custom\n',
+                                                'touch '+json.dumps(str(marker))+' && cat')
+            filters.require_refresh(data)
+            result=self.execute()
+        self.assertEqual((result.status,result.error,result.execution_started),('verification_failed','submodule_unsupported',False))
+        self.assertEqual(result.effect_verification.reason,'submodule_unsupported')
+        self.assertIn('does not support repositories containing Git submodules',tf.render(result,self.project))
+        self.assertEqual(self.commands,[]);self.assertFalse(marker.exists())
+
     def test_verification_required_and_no_git_mutation(self):
         initial=self.git('rev-parse','HEAD');index=self.git('diff','--cached')
         with patch.object(tf.runtime_effects,'capture',wraps=runtime_effects.capture) as capture, \

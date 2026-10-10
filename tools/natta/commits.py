@@ -46,8 +46,7 @@ def message_for(project, message=None):
 def git(project, *args):
     # Do not inherit GIT_DIR, GIT_INDEX_FILE, GIT_WORK_TREE, injected config or author
     # overrides. Identity is supplied by ordinary Git configuration, never Luna.
-    env={k:v for k,v in os.environ.items() if not k.startswith('GIT_')}
-    env.update(GIT_OPTIONAL_LOCKS='0',GIT_TERMINAL_PROMPT='0',GIT_PAGER='cat')
+    env=execution.git_environment()
     argv=('git','--no-optional-locks','--no-pager','-c','core.hooksPath=/dev/null',
           '-c','commit.gpgSign=false','-c','core.fsmonitor=false',
           '-c','core.untrackedCache=false','-c','core.splitIndex=false',
@@ -124,7 +123,10 @@ def create(project,message=None):
                     created=True;head=after.commit.decode('ascii')
                     actual_message=read(project,'show','-s','--format=%B','HEAD').decode('utf-8').rstrip('\n')
             except Exception:verification=runtime_effects.unavailable('post_execution_verification_failed',committing=True)
-        error=str(exc) if isinstance(exc,ValueError) else 'git_operation_failed'
+        if isinstance(exc,execution.SubmoduleUnsupported):error,detail='submodule_commit_unsupported',str(exc)
+        elif isinstance(exc,execution.ExternalFilterConfigured):
+            error,detail=exc.code,str(exc)
+        else:error=str(exc) if isinstance(exc,ValueError) else 'git_operation_failed'
         return CommitResult('effect_violation' if verification.violations else 'failed',project.alias,
             created if created or not (commit_started and head is None and verification.passed is False) else None,
             head if created else None,actual_message if created else None,paths,count,execution_started=started,

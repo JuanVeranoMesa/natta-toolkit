@@ -40,10 +40,23 @@ Protected evidence contains:
   modifying contents of an already-present untracked path is explicitly NOT observed.
 
 Git uses explicit argv, no optional index locks/refresh writes, disabled fsmonitor,
-external diff/text conversion disabled and no rename heuristics. Repositories with
-configured external clean/process filters or assume-unchanged/skip-worktree index
-entries are refused before dispatch, rather than silently trusting hidden changes
-or executing filter commands. Metadata responses are limited to 1 MiB; binary diff
+external diff/text conversion disabled, no rename heuristics and no inherited
+`GIT_*` environment (one shared helper; Natta sets only its own fixed controls).
+Assume-unchanged/skip-worktree index entries are refused before dispatch rather
+than silently trusting hidden changes. Clean/process filters are refused only when
+applied: configured `filter.<driver>.clean`/`.process` names from any config scope
+are matched against `git check-attr -z --stdin filter` for tracked and non-ignored
+untracked paths (resolving `.gitattributes`, `info/attributes`, global/system
+attributes and macros; unset, unspecified and valueless attributes select no
+driver). A match raises `external_filter_configured` without executing the filter
+or printing its command; configured but unused drivers (for example a global Git
+LFS install in a repository without `filter=lfs`) are allowed. Protected/workflow
+verification does not support repositories containing Git submodules: any index
+gitlink is refused first with `submodule_unsupported`, read from
+`git ls-files --stage` before the config query and before any diff or status could
+recurse into the submodule (a driver configured only in the submodule's own config
+is invisible to the outer repository, so submodules are never inspected).
+Commit reports this as `submodule_commit_unsupported`. Metadata responses are limited to 1 MiB; binary diff
 and index hashing are limited to 64 MiB each. Commands time out after 30 seconds.
 Diff evidence is streamed into a digest and never retained/rendered. Snapshots stay
 in memory; no history or request logs are added.
@@ -91,6 +104,9 @@ repositories inspected by doctor. Denials before execution report not_started.
   applicable verification requirement.
 - BEFORE unavailable/invalid: verification_unavailable, started=false, handler not
   called, handler_succeeded=null, reason=pre_execution_verification_failed, exit 1.
+  An applied external clean/process filter reports the specific
+  reason/error external_filter_configured instead (before or after execution);
+  a repository containing a submodule reports submodule_unsupported.
 - AFTER unavailable/invalid: verification_unavailable, started=true, actual handler
   success preserved, overall success=false, post_execution_verification_failed,
   exit 1. This includes invalid comparison data; no success is fabricated.

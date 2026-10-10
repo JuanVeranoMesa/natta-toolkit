@@ -30,6 +30,22 @@ reviewed index/HEAD mutation while rejecting unrelated protected changes.
 TestFlight declares its Apple-network effects and keeps credentials external.
 Verification failure or unavailable required protection is not reported as success.
 
+Git commands run against the registered repository path with ambient `GIT_*`
+variables removed, so `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_CONFIG_*`
+and similar routing cannot redirect inspection, snapshots or commits. Protected
+snapshots and the direct build/test/verify integrity snapshot read attributes
+with `git check-attr` and refuse
+(`external_filter_configured`) only when a configured clean/process filter applies
+to a tracked or non-ignored untracked file; Natta never executes that filter. A
+configured but unused filter, such as a global Git LFS installation in a
+repository without `filter=lfs` attributes, does not affect availability.
+Protected/workflow verification does not currently support repositories
+containing Git submodules: any submodule (gitlink) in the index is refused with
+`submodule_unsupported` (`submodule_commit_unsupported` for commit), read from the
+index alone before any Git command could recurse into it or run a filter
+configured inside it. Direct `status`, `context` and `diff` are ordinary Git
+inspection and are not covered by this refusal.
+
 ## Non-guarantees
 
 - Natta does not independently sandbox the provider process from reading the host.

@@ -1,6 +1,6 @@
 # Current scope and future direction
 
-The verified source architecture is Natta Toolkit v1: deterministic direct
+The current Natta Toolkit v1 architecture is: deterministic direct
 commands, explicit adapters, bounded selection/planning, shared authorized
 semantic dispatch, protected-state verification, host-validated macOS inspection,
 local commit, and authorized TestFlight beta upload. The optional local-model

@@ -1,6 +1,9 @@
 """Public help and parser boundaries; no application execution."""
 import contextlib
+import dataclasses
+import inspect
 import io
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -9,6 +12,8 @@ import unittest
 from unittest.mock import patch
 
 import natta
+import confinement
+import semantic_execution
 from execution import snapshot
 
 COMMANDS = ('projects', 'status', 'context', 'diff', 'doctor', 'build', 'test', 'verify', 'codex')
@@ -86,3 +91,28 @@ class HelpTests(unittest.TestCase):
                 for command in (None, *COMMANDS):
                     self.help_output(command)
             self.assertEqual(before, snapshot(repo))
+
+class PythonCompatibilityTests(unittest.TestCase):
+    """Documented minimum is Python 3.11; pre-3.14 evaluates annotations eagerly."""
+
+    def test_execution_result_annotations_resolve_without_field_shadowing(self):
+        hints = inspect.get_annotations(semantic_execution.ExecutionResult, eval_str=True)
+        self.assertIs(hints['confinement'], confinement.ConfinementResult)
+        field = next(f for f in dataclasses.fields(semantic_execution.ExecutionResult) if f.name == 'confinement')
+        self.assertIsInstance(field.default_factory(), confinement.ConfinementResult)
+        self.assertIsInstance(semantic_execution.ExecutionResult(None, 'fixture').confinement, confinement.ConfinementResult)
+
+    def test_help_imports_on_each_locally_available_supported_interpreter(self):
+        found = False
+        for version in ('3.11', '3.12', '3.13', '3.14'):
+            executable = shutil.which('python' + version)
+            with self.subTest(python=version, available=bool(executable)):
+                if executable is None:
+                    continue  # Never installed or claimed by tests; reported as unavailable.
+                found = True
+                proc = subprocess.run([executable, '-B', str(natta.ROOT / 'natta.py'), '--help'],
+                                      capture_output=True, text=True, timeout=60)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn('usage: natta', proc.stdout)
+        if not found:
+            self.skipTest('No versioned Python 3.11+ interpreter on PATH')

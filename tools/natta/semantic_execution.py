@@ -10,7 +10,7 @@ import runtime_effects
 import confinement
 from commits import CommitResult
 from testflight import TestFlightResult
-from execution import NattaError, Result, bounded_text
+from execution import PROTECTED_REFUSALS, NattaError, refusal_message, Result, bounded_text
 
 
 @dataclass(frozen=True)
@@ -34,8 +34,9 @@ class ExecutionResult:
     error: str | None = None
     handler_succeeded: bool | None = None
     effect_verification: runtime_effects.VerificationResult = field(default_factory=runtime_effects.VerificationResult)
-
-    confinement: confinement.ConfinementResult = field(default_factory=confinement.ConfinementResult)
+    # Quoted: the field name shadows the module while pre-3.14 Python evaluates
+    # class annotations eagerly.
+    confinement: 'confinement.ConfinementResult' = field(default_factory=confinement.ConfinementResult)
 
     @property
     def exit_code(self):
@@ -217,10 +218,11 @@ def dispatch(route, parser, load_projects, capability_ids, bindings, *, confirm=
                 before = capture(project)
                 if not isinstance(before, runtime_effects.execution.ProtectedSnapshot):
                     raise ValueError('Invalid protected snapshot')
-            except Exception:
+            except Exception as exc:
+                reason = exc.code if isinstance(exc, PROTECTED_REFUSALS) else 'pre_execution_verification_failed'
                 return ExecutionResult(route, 'verification_unavailable', authorization_satisfied=True,
-                                       error='pre_execution_verification_failed',
-                                       effect_verification=runtime_effects.unavailable('pre_execution_verification_failed', committing=route.capability=='commit'),
+                                       error=reason,
+                                       effect_verification=runtime_effects.unavailable(reason, committing=route.capability=='commit'),
                                        confinement=confined)
         error = None
         native_started = False
@@ -264,8 +266,9 @@ def dispatch(route, parser, load_projects, capability_ids, bindings, *, confirm=
                 if (not isinstance(verification, runtime_effects.VerificationResult) or
                         verification.performed is not True or type(verification.passed) is not bool):
                     raise ValueError('Invalid effect verification result')
-            except Exception:
-                verification = runtime_effects.unavailable('post_execution_verification_failed', committing=route.capability=='commit')
+            except Exception as exc:
+                verification = runtime_effects.unavailable(exc.code if isinstance(exc, PROTECTED_REFUSALS)
+                    else 'post_execution_verification_failed', committing=route.capability=='commit')
         status = 'executed' if handler_succeeded else 'execution_failed'
         if verification.passed is False:
             status = 'effect_violation' if verification.violations else 'verification_unavailable'
@@ -295,6 +298,8 @@ def render_result(result):
             lines.append('  effect violations: ' + ', '.join(sorted(e.value for e in result.effect_verification.violations)))
     if result.error:
         lines.append(f'  error: {result.error}')
+        if refusal_message(result.error):
+            lines.append('  ' + refusal_message(result.error))
     if result.report:
         lines.append(result.report.rstrip())
     if result.report_truncated:

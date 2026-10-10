@@ -282,11 +282,12 @@ def fixture_validation(mode):
     import natta
     with tempfile.TemporaryDirectory(prefix='natta-validate-') as temp:
         root=Path(temp).resolve();project_root=root/'project';project_root.mkdir()
-        subprocess.run(['/usr/bin/git','init','-q',str(project_root)],check=True)
+        git_env=execution.git_environment()  # Ambient GIT_* must not redirect the fixture.
+        subprocess.run(['/usr/bin/git','init','-q',str(project_root)],check=True,env=git_env)
         marker=project_root/'marker';marker.write_text('unchanged')
-        subprocess.run(['/usr/bin/git','-C',str(project_root),'add','marker'],check=True)
+        subprocess.run(['/usr/bin/git','-C',str(project_root),'add','marker'],check=True,env=git_env)
         subprocess.run(['/usr/bin/git','-C',str(project_root),'-c','user.name=Fixture','-c','user.email=fixture@example.test',
-                        'commit','-qm','fixture'],check=True)
+                        'commit','-qm','fixture'],check=True,env=git_env)
         project=natta.Project('fixture',(),'Fixture',project_root,'generic-git',{})
         runtime=root/'runtime';runtime.mkdir(mode=0o700)
         sb=root/'profile.sb';sb.write_text(profile(mode,runtime));sb.chmod(0o600)

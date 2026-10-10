@@ -131,8 +131,11 @@ class CommitTests(unittest.TestCase):
 
     def test_filters_and_merge_state_fail_before_staging(self):
         self.dirty();self.git('config','filter.evil.clean','touch arbitrary')
+        attributes=self.repo/'.git/info/attributes';attributes.parent.mkdir(exist_ok=True)
+        attributes.write_text('* filter=evil\n')
         result=commits.create(self.project);self.assertFalse(result.execution_started)
-        self.git('config','--unset','filter.evil.clean')
+        self.assertEqual(result.error,'external_filter_configured');self.assertFalse((self.repo/'arbitrary').exists())
+        self.git('config','--unset','filter.evil.clean');attributes.unlink()
         (self.repo/'.git/MERGE_HEAD').write_text(self.initial+'\n')
         result=commits.create(self.project);self.assertEqual(result.error,'git_operation_in_progress')
         self.assertFalse(result.execution_started)

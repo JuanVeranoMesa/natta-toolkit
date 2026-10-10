@@ -1,7 +1,6 @@
 """Protected observable state only. Not a filesystem/network sandbox or rollback."""
 from dataclasses import dataclass
 import execution
-import os
 from policy import Effect
 
 VERIFIABLE = frozenset((Effect.PROJECT_WRITE, Effect.GIT_INDEX_WRITE, Effect.GIT_COMMIT))
@@ -33,8 +32,7 @@ def capture(project, before=None):
 def capture_commit(project, before=None):
     return execution.protected_snapshot(project.path,
         baseline=before.baseline if before else None,
-        content_paths=tuple(p for p,_ in before.worktree_contents) if before else (),
-        git_env={k:v for k,v in os.environ.items() if not k.startswith('GIT_')})
+        content_paths=tuple(p for p,_ in before.worktree_contents) if before else ())
 
 
 def compare(before, after, allowed):

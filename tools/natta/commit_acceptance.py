@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import commits
+import execution
 import natta
 import runtime_effects
 
@@ -40,7 +41,7 @@ def fixture():
         for argv in (['git','init','-q','-b','main',str(repo)],
                      ['git','-C',str(repo),'config','user.name','Fixture'],
                      ['git','-C',str(repo),'config','user.email','fixture@example.test']):
-            subprocess.run(argv,check=True)
+            subprocess.run(argv,check=True,env=execution.git_environment())
         registry=root/'projects.toml'
         registry.write_text('schema_version=1\n[[projects]]\nalias="fixture"\nname="Disposable Fixture"\ntype="generic-git"\npath='+json.dumps(str(repo))+'\n')
         (repo/'tracked').write_text('first\n')

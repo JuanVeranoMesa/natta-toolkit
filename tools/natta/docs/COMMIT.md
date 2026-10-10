@@ -30,9 +30,12 @@ in semantic execution.
 disables optional locks, fsmonitor, external hooks, GPG signing, split-index
 creation and automatic maintenance. Hooks are deliberately disabled by
 core.hooksPath=/dev/null so they cannot mutate files, push or launch other tools.
-Existing configured external clean/process filters, hidden assume-unchanged/
-skip-worktree entries, unresolved merges, merge/rebase/cherry-pick/revert state
-and registered repos with submodules are refused in this first version. These
+Clean/process filters that apply to repository files (error
+`external_filter_configured`; configured but unused filters are allowed), hidden
+assume-unchanged/skip-worktree entries, unresolved merges, merge/rebase/
+cherry-pick/revert state and registered repos with submodules (error
+`submodule_commit_unsupported`, raised from the index before capture reads any
+worktree state) are refused in this first version. These
 require deliberate direct Git workflows, not automatic repair. Ignored files are
 not added. Symlinks are staged as links, not followed outside the repository.
 

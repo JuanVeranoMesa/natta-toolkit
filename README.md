@@ -187,6 +187,21 @@ deterministic workflow is sandboxed; trusted Xcode build phases/tests and other
 third-party code can have ordinary host filesystem/network effects. Arbitrary
 scripts are not inherently safe. See [the complete trust model](docs/SECURITY.md).
 
+Natta names each repository explicitly; its Git commands never inherit ambient
+`GIT_*` variables such as `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` or
+`GIT_CONFIG_*`. Protected operations (semantic execution, commit, TestFlight and
+confinement validation) never run external Git clean/process filter programs, so
+they refuse a repository with `external_filter_configured` only when a configured
+filter actually applies to its files. Installing Git LFS globally does not block a
+repository; a repository whose `.gitattributes` applies `filter=lfs` to tracked or
+untracked, non-ignored files is refused by those protected operations.
+
+Protected/workflow verification (direct build/test/verify, semantic execution,
+commit and TestFlight) does not currently support repositories containing Git
+submodules; such repositories are refused with `submodule_unsupported`
+(`submodule_commit_unsupported` for commit). Direct `status`, `context` and `diff`
+remain available.
+
 Only macOS is supported/tested for v1. Native semantic inspection uses legacy
 `sandbox-exec` and exact local validation; Xcode workflows and Apple services are
 macOS-specific. Some stdlib/Git code is portable, but Linux/Windows are unvalidated
@@ -208,8 +223,8 @@ cd tools/natta
 python3 -B -m unittest discover -s tests -v
 ```
 
-The complete 447-test regression suite uses temporary repositories and mocked
-providers/Apple commands. Historical-evidence-dependent tests now construct
+The regression suite (482 tests at this revision) uses temporary repositories and
+mocked providers/Apple commands. Historical-evidence-dependent tests now construct
 synthetic comparison data; no safety test was removed. Sanitized evaluation inputs
 have public control hashes and are not represented as newly measured benchmarks.
 See [evaluation provenance](docs/EVALUATION.md).
@@ -222,10 +237,13 @@ The [extension walkthrough](docs/EXTENDING.md) annotates the existing mechanism.
 
 ## Status and roadmap
 
-This v1 distribution derives from a verified personal implementation with 441
-passing tests and no confirmed remaining core v1 bugs. It preserves that source
-architecture; packaging is not a new architecture or a public-host certification.
-Planning remains bounded/experimental; local-model research remains optional.
+Natta Toolkit v1 is early software. What it guarantees is the architectural
+contracts its regression suite enforces (strict validation, authorization, policy
+recomputation, handler pinning, protected-state verification and fail-closed
+confinement), not an absence of defects. The Python versions the suite has
+actually run on are listed in [dependencies](docs/DEPENDENCIES.md); packaging is
+not a public-host certification. Planning remains bounded/experimental;
+local-model research remains optional.
 
 The [roadmap](docs/ROADMAP.md) separates present behavior from possible future
 work. Broader platforms, new capabilities and stronger isolation would need

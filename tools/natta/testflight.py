@@ -15,7 +15,7 @@ import stat
 import subprocess
 
 import adapters
-from execution import ExecutionDirectory, NattaError, assert_integrity, snapshot, bounded_text
+from execution import ExecutionDirectory, PROTECTED_REFUSALS, NattaError, refusal_message, assert_integrity, snapshot, bounded_text, git_environment
 import policy
 import runtime_effects
 
@@ -261,6 +261,7 @@ def execute(projects, project, *, check=False, runner=None):
     result = TestFlightResult('prerequisites_failed', project.alias, 'prerequisites', readiness=readiness)
     before = baseline = None
     stage = 'prerequisites'
+    pre_reason = 'pre_execution_verification_failed'
     try:
         before = runtime_effects.capture(project)
         baseline = snapshot(project.path)
@@ -274,8 +275,8 @@ def execute(projects, project, *, check=False, runner=None):
             if check:
                 result = replace(result, status='ready', stage=None)
             else:
-                env = {k:v for k,v in os.environ.items() if not k.startswith(('NATTA_ASC_', 'GIT_'))}
-                env.update(TMPDIR=str(session.path), GIT_OPTIONAL_LOCKS='0', GIT_PAGER='cat')
+                env = {k:v for k,v in git_environment().items() if not k.startswith('NATTA_ASC_')}
+                env.update(TMPDIR=str(session.path))
                 for stage in ('archive', 'export', 'upload'):
                     assert_integrity(project.path, baseline, 'before TestFlight ' + stage)
                     if stage != 'archive': validate_archive(distribution, session.path)
@@ -298,6 +299,9 @@ def execute(projects, project, *, check=False, runner=None):
             session.cleanup()  # Includes archive, options, output and Apple temporary files.
     except PrerequisiteError as exc:
         result = replace(result, status=stage + '_failed', stage=stage, error=str(exc))
+    except PROTECTED_REFUSALS as exc:
+        pre_reason = exc.code
+        result = replace(result, status='verification_failed', stage='verification', error=exc.code)
     except NattaError:
         result = replace(result, status='verification_failed', stage='verification', error='protected_state_or_runtime_ownership_failed')
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
@@ -313,8 +317,8 @@ def execute(projects, project, *, check=False, runner=None):
         if verification.passed is not True:
             result = replace(result, status='verification_failed', stage='verification', error='protected_state_verification_failed')
     else:
-        result = replace(result, status='verification_failed', stage='verification', error='pre_execution_verification_failed',
-                         effect_verification=runtime_effects.unavailable('pre_execution_verification_failed'))
+        result = replace(result, status='verification_failed', stage='verification', error=pre_reason,
+                         effect_verification=runtime_effects.unavailable(pre_reason))
     return result
 
 
@@ -340,6 +344,7 @@ def render(result, project):
                       'Remote signing/authentication/upload readiness: not verified'])
     if result.version: lines.extend(['Version: ' + result.version, 'Build: ' + result.build_number])
     if result.error: lines.append('Error: ' + result.error)
+    if refusal_message(result.error): lines.append(refusal_message(result.error))
     if result.upload_succeeded:
         lines.append('Uploaded to App Store Connect for TestFlight. Processing may continue asynchronously.')
     lines.extend(['Not submitted for App Review.', 'Not released publicly.'])
