@@ -11,7 +11,9 @@ htmlcov/
 *.swp
 *.tmp
 # Local configuration, authentication and retained runtime output
-config/projects.toml
+# Local registries anywhere in the tree, and `natta project` staging files.
+**/config/projects.toml
+.projects-*.toml
 .env
 .env.*
 *.log
