@@ -51,6 +51,12 @@ COMMANDS = MappingProxyType({
     'projects': Command('List registered projects',
         'List registered projects with alias, display name, adapter type, and repository path.',
         'natta projects'),
+    'project': Command('Add, remove or validate project registrations',
+        'Manage entries in the project registry. add registers an existing Git repository '
+        'root, detecting its adapter type, canonical documents and (with targets) Xcode '
+        'container and shared scheme; remove unregisters one alias; validate checks every '
+        'registration. Writes only the registry file, never a registered project.',
+        'natta project add example ~/Projects/example'),
     'status': Command('Inspect project and Git status',
         'Deterministic, read-only inspection of branch, working-tree status, version/build, '
         'latest commit, and canonical document paths.', 'natta status example', 'required'),

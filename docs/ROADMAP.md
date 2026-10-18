@@ -15,3 +15,6 @@ reviewed isolation. Persistent analytics, remote inference and broader workflows
 are future ideas rather than v1 features. No autonomous agents, arbitrary script
 loading, provider fallback, automatic repair or public app release is implemented.
 A minimal public CI test workflow exists; community process can be considered later.
+Distribution is a Homebrew formula in this repository. Python packaging (pip or
+`uv tool`) would first require turning the flat core modules into a package, so
+they cannot collide with other top-level modules; it is not provided.

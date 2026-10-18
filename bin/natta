@@ -22,4 +22,16 @@ if [ ! -f "$NATTA_SOURCE" ]; then
     echo "natta: cannot find the toolkit checkout from launcher $0 (expected $NATTA_SOURCE)" >&2
     exit 1
 fi
-exec python3 -B "$NATTA_SOURCE" "$@"
+# NATTA_PYTHON selects the interpreter (default: python3 on PATH). Check the
+# documented minimum first so an old interpreter fails with a message rather
+# than a traceback.
+NATTA_PYTHON=${NATTA_PYTHON:-python3}
+if ! command -v "$NATTA_PYTHON" >/dev/null 2>&1; then
+    echo "natta: Python 3.11+ is required; '$NATTA_PYTHON' was not found (set NATTA_PYTHON to a Python 3.11+ interpreter)" >&2
+    exit 1
+fi
+if ! NATTA_PYTHON_VERSION=$("$NATTA_PYTHON" -I -c 'import sys; print("%d.%d" % sys.version_info[:2]); sys.exit(sys.version_info < (3, 11))' 2>/dev/null); then
+    echo "natta: Python 3.11+ is required; found ${NATTA_PYTHON_VERSION:-an unknown version} at $(command -v "$NATTA_PYTHON") (set NATTA_PYTHON to a Python 3.11+ interpreter)" >&2
+    exit 1
+fi
+exec "$NATTA_PYTHON" -B "$NATTA_SOURCE" "$@"

@@ -1,9 +1,28 @@
 # Adding a capability: contributor checklist
 
 Registration is a reviewed integration boundary. Arbitrary scripts are never
-discovered or treated as plugins, and nothing here is generated automatically.
+discovered or treated as plugins, and nothing is registered automatically.
 Follow the steps in order; each names the exact file and symbol to change. All
-paths are relative to `tools/natta/`.
+paths are relative to `tools/natta/`. Adding a [project](#adding-a-project), an
+[adapter](#adding-an-adapter-project-type) or a [separate tool](#adding-a-separate-tool-under-tools)
+has its own shorter section at the end.
+
+To start, the development-only scaffold writes the two new files every
+capability needs and prints the remaining edits below, with snippets, in order:
+
+```sh
+cd tools/natta
+python3 -B scaffold_capability.py lint --kind inspection --planner
+```
+
+`--kind` is `inspection`, `workflow` or `unvalidated` and selects policy and
+confinement defaults; `--project` overrides the PROJECT positional. It writes
+`config/routing-<name>-v1.json` (placeholder description) and
+`tests/test_capability_<name>.py` (a failing skeleton), refuses to overwrite and
+edits no existing source. Placeholders contain `TODO(scaffold)`: the parity check
+rejects a routing file that still contains it and the skeleton fails, so an
+unfinished capability cannot pass either check. Every effect, authorization and
+confinement default it prints is a starting point for review, not a decision.
 
 The mechanical check for steps 1–10 is:
 
@@ -215,12 +234,74 @@ automatic `PROJECT_INSPECTION`; `handler_bindings()` maps it via `partial`;
 `confinement.INSPECTION_TARGETS`, so semantic execution requires validated
 inspection confinement plus protected-state verification.
 
-A new project is configuration, not a capability. A new adapter implements
-`diagnose()` and `plan(operation, level, external_state)`, is added to
-`adapters.ADAPTERS` (the registry rejects unknown adapter types at load), and
-never evaluates registry command strings.
+## Adding a project
+
+A new project is configuration, not a capability. Register an existing
+repository root:
+
+```sh
+natta project add example ~/Projects/example --name "Example App"
+natta project add app ~/Projects/app --unit-target AppTests --ui-target AppUITests \
+  --ui-test AppUITests/Smoke/testLaunch
+natta project validate
+```
+
+`add` detects `ios-xcode` when an `.xcodeproj`/`.xcworkspace` is at the root
+(otherwise `generic-git`; `--type` overrides), records `AGENTS.md`,
+`ARCHITECTURE.md`/`docs/ARCHITECTURE.md` and `ROADMAP.md`/`docs/ROADMAP.md` when
+present, and stores paths under your home as `~/...`. Xcode execution is
+configured only when test targets are given; the container and scheme are then
+taken from the only container at the root and its only shared scheme, or from
+`--container`/`--scheme`. Without targets the registration is inspection-only.
+`remove ALIAS` deletes only that entry's lines and never touches the repository.
+Both write only the registry: the result is staged beside it, re-parsed, checked
+to change exactly one entry and fully validated before it atomically replaces the
+file. A registry that is not one `[[projects]]` header per entry is left for
+manual editing.
+
+## Adding an adapter (project type)
+
+An adapter owns the mechanics for one project type; the registry only selects it.
+
+1. Implement a class in `adapters.py` with `diagnose()` returning
+   `[(passed, label), ...]` and `plan(operation, level, external_state)` returning
+   `Check`s for `build`, `test` and `verify` levels 1–3. Subclass `GenericGit` to
+   keep the Git diff checks. Build argv tuples in code; never evaluate registry
+   strings as commands, and use `-c core.fsmonitor=false` for Git.
+2. Validate its `[projects.execution]` table in `adapters.parse_execution`
+   (selections only, paths inside the repository, unknown fields rejected).
+3. Add it to `adapters.ADAPTERS`; the registry rejects unknown types at load.
+4. Add a fixture to `FIXTURES` in `tests/test_adapter_contract.py`. The contract
+   test fails for an adapter without one, and checks every plan: fixed argv with
+   no shell, a reason for every skipped/unavailable check, Git reads without
+   fsmonitor, and paths confined to the project or the external state directory.
+5. Add adapter-specific tests with mocked tools, auto-detection in
+   `registration.detect_type` if the type is recognizable from the repository
+   root, the `--type` help, and documentation in `examples/README.md` and
+   `docs/RESULT_CONTRACT.md`.
+
+`adapters.py` is part of the inspection fingerprint (step 13).
+
+## Adding a separate tool under `tools/`
+
+`tools/natta` is the standard-library core. Anything with other dependencies is
+a separate tool beside it, like `tools/natta-local-model`:
+
+- its own directory with a `README.md` stating purpose, requirements and the
+  explicit setup commands;
+- dependencies declared and locked in that directory (`pyproject.toml` with
+  `uv.lock`); nothing installed into the core's interpreter, and no environment,
+  model weights or results committed (see `.gitignore`);
+- the core never imports it: it is reached, if at all, through an explicit
+  optional integration that reports itself unavailable when absent (as
+  `local_model.doctor_checks` does);
+- setup and downloads are explicit user actions that fail when prerequisites are
+  missing instead of repairing them.
+
+`tests/test_repository_layout.py` checks the README, manifest/lock pairing and
+that the core imports no separate tool.
 
 ## Not yet provided
 
-There is no capability scaffold/helper command and no user-selectable model
-configuration; both are future work built on this checklist.
+There is no user-selectable model configuration; it is future work built on this
+checklist.

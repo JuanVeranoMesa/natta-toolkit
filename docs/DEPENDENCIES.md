@@ -16,7 +16,12 @@ yet. The GitHub Actions workflow `.github/workflows/tests.yml` runs the suite,
 `natta.py --help` and a whole-tree `git diff --check` on Python 3.11 and 3.14
 (macOS); a 3.11 run counts as recorded once that workflow has passed.
 
-The POSIX `bin/natta` wrapper requires `sh`, `dirname`, and `python3` on PATH.
+The POSIX `bin/natta` wrapper requires `sh`, `dirname`, and `python3` on PATH (or
+an interpreter named by `NATTA_PYTHON`); it refuses interpreters older than 3.11
+with a message before importing anything. The Homebrew formula (`Formula/natta.rb`)
+depends on `python@3.14` and defaults the launcher to it. The formula's install
+layout is reproduced by the test suite; installation through Homebrew itself is
+not part of CI.
 Its source paths resolve within this checkout. No dotfiles, shell aliases or global
 site-package installation is required.
 

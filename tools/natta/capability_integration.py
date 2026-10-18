@@ -21,6 +21,8 @@ import router_codex
 import semantic_execution
 
 INTEGRITY = router_codex.SOURCE / 'evaluation/public-controls-integrity.json'
+# Marker written by scaffold_capability.py; reviewed descriptions never contain it.
+SCAFFOLD_PLACEHOLDER = b'TODO(scaffold)'
 
 
 def parser_command_ids(parser):
@@ -76,6 +78,8 @@ def validate(parser, bindings, direct_handlers, *, commands=None, catalog=None, 
             raise ValueError('Routing descriptions differ from the semantic capability universe')
     for name in routing_files():
         path = router_codex.SOURCE / name
+        if SCAFFOLD_PLACEHOLDER in path.read_bytes():
+            raise ValueError('Routing description is an unreviewed scaffold placeholder: ' + name)
         if pins.get(name) != hashlib.sha256(path.read_bytes()).hexdigest():
             raise ValueError('Routing description file is not pinned or changed: ' + name)
     # Handler bindings, policy and effects.

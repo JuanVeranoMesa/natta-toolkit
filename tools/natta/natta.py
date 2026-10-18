@@ -47,6 +47,9 @@ class Project:
 def load_registry(path):
     try:
         data = tomllib.loads(Path(path).read_text())
+    except FileNotFoundError as exc:
+        raise NattaError(f"Cannot read registry {path}: no such file. Register a repository with "
+                         "`natta project add ALIAS PATH`, or copy examples/projects.toml there") from exc
     except (OSError, ValueError) as exc:
         raise NattaError(f"Cannot read registry {path}: {exc}") from exc
     if set(data) != {"schema_version", "projects"} or type(data["schema_version"]) is not int or data["schema_version"] != 1:
@@ -361,6 +364,30 @@ Examples:
             sub.add_argument('--confirm', action='store_true',
                              help='Cannot preauthorize model-proposed explicit steps: such a plan is refused; '
                                   'approve the displayed plan in a terminal instead')
+        if command == "project":
+            actions = sub.add_subparsers(dest='project_action', required=True, metavar='ACTION')
+            add = actions.add_parser('add', help='Register an existing Git repository root')
+            add.add_argument('alias', metavar='ALIAS', help='Canonical alias: lowercase letters, digits, - or _')
+            add.add_argument('path', metavar='PATH', help='Repository root; stored as ~/... when under your home')
+            add.add_argument('--name', help='Display name (default: the directory name)')
+            add.add_argument('--type', choices=sorted(adapters.ADAPTERS),
+                             help='Adapter type (default: ios-xcode when an Xcode project/workspace is at the root)')
+            add.add_argument('--extra-alias', action='append', metavar='ALIAS', help='Alternate alias (repeatable)')
+            xcode = add.add_argument_group('Xcode execution (ios-xcode; omit all for inspection-only)')
+            xcode.add_argument('--container', metavar='PATH', help='.xcodeproj or .xcworkspace (default: the only one at the root)')
+            xcode.add_argument('--scheme', help='Scheme (default: the only shared scheme in the container)')
+            xcode.add_argument('--configuration', default='Debug', help='Build configuration (default: Debug)')
+            xcode.add_argument('--unit-target', action='append', metavar='TARGET', help='Unit test target (repeatable)')
+            xcode.add_argument('--ui-target', action='append', metavar='TARGET', help='UI test target (repeatable)')
+            xcode.add_argument('--test-target', action='append', metavar='TARGET',
+                               help='Normal test target (repeatable; default: the unit targets)')
+            xcode.add_argument('--ui-test', action='append', metavar='TARGET/CLASS/METHOD',
+                               help='UI smoke test identifier (repeatable)')
+            remove = actions.add_parser('remove', help='Unregister one project; never touches its repository')
+            remove.add_argument('alias', metavar='ALIAS', help='Canonical alias to remove')
+            actions.add_parser('validate', help='Check every registration is a readable repository root')
+            for action in actions.choices.values():
+                action.add_argument('--json', action='store_true', help='Print a structured result')
         if command == "confinement":
             actions = sub.add_subparsers(dest='confinement_action', required=True)
             actions.add_parser('validate', help='Disposable inspection confinement probes; no semantic model or app workflows')
@@ -536,6 +563,35 @@ def run_projects(args, parser):
     return handle_projects(load_registry(args.registry), None, ()).exit_code
 
 
+def run_project(args, parser):
+    import registration
+    registry = Path(args.registry).expanduser()
+    try:
+        if args.project_action == 'add':
+            entry = registration.add(registry, args, load_registry)
+            result = {'status': 'added', 'project': entry}
+            message = (f"Registered {entry['alias']} ({entry['type']}) at {entry['path']} in {registry}" +
+                       ('' if entry.get('execution') or entry['type'] != 'ios-xcode' else
+                        '\nNo Xcode execution configured: inspection only. Re-add with --unit-target to enable build/test/verify.'))
+        elif args.project_action == 'remove':
+            entry = registration.remove(registry, args.alias, load_registry)
+            result = {'status': 'removed', 'project': entry}
+            message = f"Unregistered {entry['alias']} from {registry}; its repository was not modified"
+        else:
+            projects, problems = registration.validate(registry, load_registry)
+            result = {'status': 'failed' if problems else 'passed',
+                      'projects': [p.alias for p in projects], 'problems': problems}
+            message = '\n'.join([*(f'FAIL  {p}' for p in problems),
+                                 f"{len(projects)} project(s) registered; {len(problems)} problem(s)"])
+    except NattaError as exc:
+        if not args.json:
+            raise
+        result = {'status': 'failed', 'error': 'registration_invalid', 'message': bounded_text(str(exc), 500)}
+        message = None
+    print(json.dumps(result, sort_keys=True) if args.json else message)
+    return 0 if result['status'] in ('added', 'removed', 'passed') else 1
+
+
 def run_doctor(args, parser):
     # Doctor reports an invalid registry as a failed core check rather than
     # stopping before any diagnostics.
@@ -598,7 +654,7 @@ def run_inspection(args, parser):
 DIRECT_HANDLERS = MappingProxyType({
     'do': run_do, 'plan': run_plan, 'confinement': run_confinement,
     'route': run_route, 'execute': run_execute, 'codex': run_codex,
-    'projects': run_projects, 'doctor': run_doctor, 'testflight': run_testflight,
+    'projects': run_projects, 'project': run_project, 'doctor': run_doctor, 'testflight': run_testflight,
     'commit': run_commit, 'build': run_workflow, 'test': run_workflow, 'verify': run_workflow,
     'status': run_inspection, 'context': run_inspection, 'diff': run_inspection,
 })
@@ -659,6 +715,8 @@ def cli_failure(args):
             stage='prerequisites', error='cli_configuration_invalid').as_dict()
     if args.command == 'doctor':
         return {'status': 'failed', 'core_ready': False, 'checks': [], 'error': 'cli_configuration_invalid'}
+    if args.command == 'project':
+        return {'status': 'failed', 'error': 'registration_invalid'}
     route = routing.RouteResult('routing_error', None, error='parameter_configuration_invalid')
     if args.command == 'execute':
         return semantic_execution.ExecutionResult(route, 'routing_error', error=route.error).as_dict()

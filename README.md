@@ -41,6 +41,7 @@ implement that tool's behavior.
 | Command | Outcome |
 | --- | --- |
 | `projects` | List registered projects |
+| `project add\|remove\|validate` | Register, unregister or check repositories; writes only the registry |
 | `status PROJECT`, `context PROJECT` | Inspect identity, Git state, version and document paths |
 | `diff PROJECT` | Inspect staged/unstaged change summaries without external diff tools |
 | `doctor` | Required core health and separate optional readiness checks |
@@ -68,29 +69,44 @@ Currently supported/tested environment: **macOS**. Core requirements are Python
 3.11+ and Git. No Python packages, virtual environment or model weights are
 required for the core. See [dependency and compatibility details](docs/DEPENDENCIES.md).
 
-From the root of a local checkout:
+With Homebrew (this repository is its own tap; Homebrew's Python is used):
+
+```sh
+brew tap juanveranomesa/natta https://github.com/JuanVeranoMesa/natta-toolkit
+brew install natta            # or: brew install --HEAD natta
+natta project add example ~/Projects/example
+natta doctor
+```
+
+Or from the root of a local checkout:
 
 ```sh
 export PATH="$PWD/bin:$PATH"
 natta --help
-mkdir -p "$HOME/.config/natta"
-cp examples/projects.toml "$HOME/.config/natta/projects.toml"
-# Edit project paths and selections before running doctor.
+natta project add example ~/Projects/example   # creates ~/.config/natta/projects.toml
 natta doctor
 ```
 
+The launcher checks for Python 3.11+ before starting and exits with a message
+naming the interpreter it found. It uses `python3` on PATH; set `NATTA_PYTHON` to
+choose another interpreter (the Homebrew formula defaults it to its own Python).
 Persist the checkout's absolute `bin` path in your shell's PATH configuration,
 symlink `bin/natta` into a directory already on PATH (for example
 `ln -s "$PWD/bin/natta" ~/.local/bin/natta`), or run `bin/natta` by its path. The
 launcher follows symlinks to find its checkout; a copied wrapper cannot and exits
 with an error. Whether `natta` is on PATH is reported by `doctor` as an optional
-integration check, never as core health. There is no installer, shell dependency,
-global Python installation, automatic dependency repair or dependency on another checkout.
+integration check, never as core health. Neither route has a shell dependency, global
+Python package installation, automatic dependency repair or dependency on another checkout.
 
 ## Configuration and project registry
 
 User configuration defaults to `~/.config/natta/projects.toml`. The global
 `--registry PATH` option selects another file. No personal projects are shipped.
+`natta project add ALIAS PATH` registers a repository root, detecting its adapter
+type and canonical documents; `natta project remove ALIAS` unregisters one and
+`natta project validate` checks them all. These write only the registry, through a
+verified atomic replacement; see [adding a project](docs/EXTENDING.md#adding-a-project).
+You can also edit the file directly.
 The [example registry](examples/projects.toml) is a template for fictitious
 repositories, not a ready-made Xcode project or a promise that the paths exist.
 
@@ -246,7 +262,7 @@ cd tools/natta
 python3 -B -m unittest discover -s tests -v
 ```
 
-The regression suite (539 tests at this revision) uses temporary repositories and
+The regression suite (561 tests at this revision) uses temporary repositories and
 mocked providers/Apple commands. Historical-evidence-dependent tests now construct
 synthetic comparison data; no safety test was removed. Sanitized evaluation inputs
 have public control hashes and are not represented as newly measured benchmarks.
@@ -258,7 +274,10 @@ effect/policy declaration, handler binding, routing/planner eligibility,
 confinement classification, result support and regression tests.
 `capability_integration.py` mechanically checks that every layer agrees.
 Automatic arbitrary-script discovery is intentionally absent. The
-[contributor checklist](docs/EXTENDING.md) gives the exact order.
+[contributor checklist](docs/EXTENDING.md) gives the exact order;
+`python3 -B scaffold_capability.py NAME --kind KIND` writes the new placeholder
+files and prints the remaining edits. The checklist also covers new adapters
+(with a shared contract test) and separate tools under `tools/`.
 
 ## Status and roadmap
 
