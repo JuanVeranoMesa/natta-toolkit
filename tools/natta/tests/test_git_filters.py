@@ -239,7 +239,8 @@ class GitFilterTests(unittest.TestCase):
         data = add_filtered_submodule(self.repo, self.root / 'source', 'data.txt filter=custom\n', self.command)
         require_refresh(data)
         # The driver is invisible to the outer repository's configuration query.
-        self.assertEqual(subprocess.run(['git', '-C', str(self.repo), 'config', '--get-regexp', r'^filter\.'],
+        # Match only this driver: hosts (such as CI runners) may define filter.lfs globally.
+        self.assertEqual(subprocess.run(['git', '-C', str(self.repo), 'config', '--get-regexp', r'^filter\.custom\.'],
                                         capture_output=True).returncode, 1)
         self.assert_submodule_refused()
         self.assert_direct_workflows_refused(self.SUBMODULE_MESSAGE)
