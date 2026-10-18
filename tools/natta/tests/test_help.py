@@ -42,7 +42,7 @@ class HelpTests(unittest.TestCase):
                     'status': ('branch', 'working-tree', 'version/build', 'canonical'),
                     'context': ('orientation/context', 'future provider', 'does not invoke AI'),
                     'diff': ('Read-only', 'staged/unstaged', 'reset'),
-                    'doctor': ('Diagnostic-only', 'Phase 2', 'simulator'),
+                    'doctor': ('Diagnostic-only', 'core, provider and integration', 'simulator'),
                     'build': ('registered deterministic', 'No AI', 'without fixing'),
                     'test': ('normal test workflow', 'unavailable', 'no automatic fixes'),
                     'verify': ('project-specific', 'unavailable/skipped', 'Level 3')}

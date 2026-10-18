@@ -201,7 +201,8 @@ class GitFilterTests(unittest.TestCase):
                 required_effects=plan.required_effects, enforced_effects=plan.required_effects))
         with patch.object(gate.confinement, 'open_session', side_effect=fake_session), \
              patch.object(provider, 'run_provider', side_effect=AssertionError('provider call')):
-            result = gate.dispatch(route, parser, lambda: projects, ids, bindings, confirm=True)
+            result = gate.dispatch(route, parser, lambda: projects, ids, bindings, confirm=True,
+                                   expected_capability=capability)
         return result, bindings
 
     SUBMODULE_MESSAGE = 'does not support repositories containing Git submodules'

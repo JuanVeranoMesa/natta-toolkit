@@ -15,16 +15,16 @@ build/test/verify prerequisite. See [research findings](../../../docs/EVALUATION
 | Semantic target | Authorization | Execution protection |
 |---|---|---|
 | status/context/diff | automatic policy | current inspection validation, native worker, protected-state verifier |
-| build/test/verify | explicit terminal approval or --confirm | static existing handler, mandatory pre/post protected-state verifier; no OS sandbox |
-| commit | explicit terminal approval or --confirm | commit-aware protected-state verifier; no OS sandbox |
-| testflight | explicit terminal approval or --confirm | workflow protected-state verifier and product postconditions; no OS sandbox |
+| build/test/verify | explicit terminal approval or --confirm --expect | static existing handler, mandatory pre/post protected-state verifier; no OS sandbox |
+| commit | explicit terminal approval or --confirm --expect | commit-aware protected-state verifier; no OS sandbox |
+| testflight | explicit terminal approval or --confirm --expect | workflow protected-state verifier and product postconditions; no OS sandbox |
 | projects/doctor | automatic policy | semantic execution unavailable because no native mode is validated; direct commands available |
 
 Capability type, declared effects, authorization and confinement are separate
 axes. Only build/test/verify, commit and TestFlight have reviewed native-confinement exemptions;
 new capabilities do not inherit that exemption merely by being workflows.
 
-Luna selects one bounded capability. Natta validates it, resolves registry project
+The semantic model selects one bounded capability. Natta validates it, resolves registry project
 and bounded arguments, reevaluates policy and authorization, and binds an existing
 handler. Raw requests never become handler arguments. An unconfirmed build/test/
 verify never starts. No_match, unresolved parameters, forbidden effects, provider
@@ -55,7 +55,7 @@ code/path races and complete external-service prevention are not claimed.
 
 ## Validation and doctor
 
-`natta confinement validate` performs zero Luna calls and no app/Xcode workflow.
+`natta confinement validate` performs zero semantic-model calls and no app/Xcode workflow.
 It creates disposable fixtures, exercises the exact inspection profile and bound
 inspection handlers, cleans up and saves success only after every check passes.
 There is no --xcode or --verbose validation option anymore.
@@ -73,7 +73,7 @@ Old Xcode records are ignored, not deleted from user runtime state.
 Doctor reports primitive/backend presence, inspection validation and a successful
 informational check: Xcode native confinement deferred / not required. It reads
 structural/version/record facts, performs no native validation fixture or build,
-and makes zero Luna requests. Deferred research is not a broken dependency.
+and makes zero semantic-model requests. Deferred research is not a broken dependency.
 
 ## Workflow result and residual risks
 
@@ -107,8 +107,8 @@ success. No rollback is performed.
 ## Scope retained
 
 Direct status/context/diff/build/test/verify/doctor/projects retain their existing
-behavior: no Luna, new confirmation or semantic sandbox requirement. Semantic
-execute still makes exactly one Luna call; native confinement and runtime effect
+behavior: no semantic model, new confirmation or semantic sandbox requirement. Semantic
+execute still makes exactly one semantic-model call; native confinement and runtime effect
 verification make zero. Bounded do reuses the same dispatcher and per-step
 protections; no new confinement backend or provider fallback is introduced.
 

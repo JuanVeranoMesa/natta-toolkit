@@ -35,7 +35,10 @@ class SemanticExecutionTests(unittest.TestCase):
     def invoke(self, request, choice, confirm=False, bindings=None, failure=None, raw=None, json_mode=True):
         bindings = self.bindings() if bindings is None else bindings
         args = ['--registry', str(self.registry), 'execute', request]
-        if confirm: args.append('--confirm')
+        if confirm:
+            # Preauthorization names the expected action; unknown choices still
+            # need some expectation, and never match a selected capability.
+            args += ['--confirm', '--expect', choice if choice in natta.capabilities.CAPABILITIES else 'build']
         if json_mode: args.append('--json')
         out, err = io.StringIO(), io.StringIO()
         with patch.object(provider, 'run_provider', return_value=raw if raw is not None else json.dumps({'choice': choice}), side_effect=failure) as run, \

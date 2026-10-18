@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 
 import authorization
+import capabilities
 import planning
 import policy
 import routing
@@ -98,11 +99,15 @@ def run(goal, parser, load_projects, bindings, *, confirm=False, json_mode=False
     # Reuse planner validation as a whole-plan integrity check, without a model.
     checked = planning.validate({'status': 'planned', 'steps': [
         {'capability': s.capability, 'project': s.project, 'arguments': dict(s.arguments)}
-        for s in plan.steps]}, parser, projects, bindings)
+        for s in plan.steps]}, parser, projects, bindings, goal=goal)
     if (not checked.valid or checked.steps != plan.steps or
             checked.authorization != plan.authorization or checked.effects != plan.effects):
         return denied('invalid_plan', 'frozen_plan_invalid')
-    ids = routing.provider.authoritative_ids() - {'codex', 'route'}
+    # --confirm was given before the model proposed any step, so it cannot name
+    # the explicit actions it would cover. Such plans need post-plan approval.
+    if plan.authorization == policy.Authorization.EXPLICIT and confirm is True:
+        return denied('authorization_required', 'compound_preauthorization_unsupported')
+    ids = frozenset(capabilities.capability_ids())
     routes = tuple(route_for(s) for s in plan.steps)
     targets = []
     for step, route in zip(plan.steps, routes):
@@ -115,7 +120,7 @@ def run(goal, parser, load_projects, bindings, *, confirm=False, json_mode=False
         targets.append(target)
     if not json_mode:
         print('Plan\n' + '\n'.join('  ' + line for line in plan_lines(plan, projects)), flush=True)
-    if plan.authorization == policy.Authorization.EXPLICIT and confirm is not True:
+    if plan.authorization == policy.Authorization.EXPLICIT:
         approval = None if json_mode else authorization.request_approval((), heading=None,
             notice=authorization_notice(plan, projects))
         if approval is not True:
@@ -157,4 +162,7 @@ def render(result):
     lines.append('Result: ' + ('passed' if result.execution_succeeded is True else result.status))
     if result.error:
         lines.append('Error: ' + result.error)
+    if result.error == 'compound_preauthorization_unsupported':
+        lines.append('--confirm cannot preauthorize model-proposed explicit steps; '
+                     'rerun without --confirm in a terminal to review and approve the plan.')
     return '\n'.join(lines)

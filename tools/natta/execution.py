@@ -101,27 +101,48 @@ def query(command, cwd, runner=run):
     return process.stdout
 
 
+HASH_CHUNK = 64 * 1024
+
+
+def file_digest(path):
+    """Streaming SHA-256: peak memory is one chunk, whatever the file size."""
+    hasher = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        while chunk := stream.read(HASH_CHUNK):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
 def snapshot(cwd, *, protected=False, baseline=None):
-    """Legacy content/Git guard; protected=True selects bounded Git evidence."""
+    """Legacy content/Git guard; protected=True selects bounded Git evidence.
+
+    Scope is the meaningful repository boundary: tracked files plus untracked
+    files that are not ignored (.gitignore, info/exclude, core.excludesFile).
+    Ignored build outputs/caches are outside this snapshot. Natta-owned Git
+    reads disable fsmonitor and the untracked cache, so no repository-configured
+    hook runs; applied clean/process filters and submodules are refused first.
+    """
     if protected:
         return protected_snapshot(cwd, baseline=baseline)
-    base = ("git", "--no-optional-locks", "-C", str(cwd))
+    base = ("git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-C", str(cwd))
     env = git_environment()
     refuse_applied_filters(cwd)  # git status would run an applied clean/process filter.
     def read(*args):
         return subprocess.check_output((*base, *args), env=env)
-    paths = set(read("ls-files", "--cached", "--others", "-z").split(b"\0")) - {b""}
+    paths = set(read("ls-files", "--cached", "--others", "--exclude-standard", "-z").split(b"\0")) - {b""}
     hashes = {}
     for raw in sorted(paths):
         path = Path(cwd) / os.fsdecode(raw)
-        content = os.fsencode(os.readlink(path)) if path.is_symlink() else path.read_bytes() if path.is_file() else None
-        hashes[raw] = hashlib.sha256(content).hexdigest() if content is not None else None
+        if path.is_symlink():
+            hashes[raw] = hashlib.sha256(os.fsencode(os.readlink(path))).hexdigest()
+        else:
+            hashes[raw] = file_digest(path) if path.is_file() else None
     gitdir = Path(os.fsdecode(read("rev-parse", "--absolute-git-dir")).strip())
     index = gitdir / "index"
     commit = subprocess.run((*base, "rev-parse", "--verify", "HEAD"), capture_output=True, env=env)
     return {"commit": (commit.returncode, commit.stdout), "files": hashes, "status": read("status", "--porcelain=v1", "-z", "--untracked-files=all"),
             "head": read("symbolic-ref", "-q", "HEAD") if (gitdir / "HEAD").read_text().startswith("ref:") else (gitdir / "HEAD").read_bytes(),
-            "index": index.read_bytes() if index.exists() else None}
+            "index": file_digest(index) if index.exists() else None}
 
 
 @dataclass(frozen=True)

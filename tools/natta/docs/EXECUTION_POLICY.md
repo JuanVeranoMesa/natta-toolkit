@@ -4,7 +4,7 @@
 
 # Declared effects and execution policy
 
-The current boundary is Luna capability selection → local capability validation →
+The current boundary is semantic-model capability selection → local capability validation →
 deterministic parameter resolution → deterministic effects/authorization policy →
 structured planning result. **Route never executes.** The separate `natta execute` gate now invokes one existing handler only after
 revalidation and invocation-local authorization; see [EXECUTION_GATE.md](EXECUTION_GATE.md).
@@ -31,7 +31,7 @@ Three independent fields describe a target:
 
 Automatic permits execution without an additional confirmation only within
 the separate execute gate's validated policy. Explicit requires invocation-local
---confirm or affirmative terminal approval. Forbidden means no current authorization path exists. Policy evaluation only reports these categories; it does not prompt or consume
+`--confirm --expect CAPABILITY` naming the routed capability, or affirmative terminal approval. Forbidden means no current authorization path exists. Policy evaluation only reports these categories; it does not prompt or consume
 permission. The separate execution gate consumes the dedicated CLI signal.
 
 ## Current target policies
@@ -75,7 +75,7 @@ Classification follows the implementation:
 - Doctor reads local/project state, diagnoses adapters and runs local CLI/Xcode
   metadata probes. Such tools may initialize local cache/runtime files, so W is
   conservatively included even though repository inspection is read-only. No
-  Luna decision is made by doctor.
+  semantic-model decision is made by doctor.
 - Workflows allocate an external ExecutionDirectory and discovery/process logs,
   DerivedData, packages and result bundles. Default state is temporary and cleaned
   after ordinary completion/failure; interrupted cleanup can leave temporary
@@ -100,7 +100,7 @@ entry may authorize git_index_write/git_commit; only the reviewed explicit
 TestFlight entry may authorize network/external_service_mutation. Catalog validation
 rejects these effects on other targets, and forbidden entries are never eligible.
 The network restriction describes the proposed executable target, not the
-separate Luna classification request's network usage. Local policy evaluation
+separate semantic-model classification request's network usage. Local policy evaluation
 makes zero provider requests or processes.
 
 Read-only repositories do not imply zero writes elsewhere. Existing integrity
@@ -160,7 +160,7 @@ external-service absence is provided. See [observable scope and contract](RUNTIM
 
 Semantic status/context/diff use a current host-validated macOS inspection
 sandbox and mandatory runtime verification. Build/test/verify require explicit
-terminal approval or --confirm and mandatory protected-state snapshots, but no native confinement.
+terminal approval or --confirm --expect and mandatory protected-state snapshots, but no native confinement.
 Xcode sandbox-exec research is deliberately deferred, not a production dependency.
 Policy-denied effects are distinct from actively enforced effects: workflow
 network, external services and unrelated filesystem writes are residual risks.

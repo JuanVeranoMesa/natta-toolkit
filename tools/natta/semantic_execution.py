@@ -1,6 +1,6 @@
 """Local authorization and bound dispatch. No provider calls or text-to-command path."""
 import contextlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import io
 
 import parameters
@@ -34,6 +34,7 @@ class ExecutionResult:
     error: str | None = None
     handler_succeeded: bool | None = None
     effect_verification: runtime_effects.VerificationResult = field(default_factory=runtime_effects.VerificationResult)
+    expected_capability: str | None = None
     # Quoted: the field name shadows the module while pre-3.14 Python evaluates
     # class annotations eagerly.
     confinement: 'confinement.ConfinementResult' = field(default_factory=confinement.ConfinementResult)
@@ -52,7 +53,7 @@ class ExecutionResult:
                     execution_started=self.execution_started,
                     execution_succeeded=self.execution_succeeded, handler_succeeded=self.handler_succeeded,
                     effect_verification=self.effect_verification.as_dict(), confinement=self.confinement.as_dict(), error=self.error,
-                    result=None)
+                    expected_capability=self.expected_capability, result=None)
         if self.outcome:
             data['result'] = {'exit_code': self.outcome.exit_code, 'report': self.report,
                              'report_truncated': self.report_truncated,
@@ -150,21 +151,30 @@ def validate_target(route, parser, load_projects, capability_ids, bindings):
 
 
 def dispatch(route, parser, load_projects, capability_ids, bindings, *, confirm=False,
-             authorize=None, expected_target=None):
+             authorize=None, expected_target=None, expected_capability=None):
     """Execute one frozen route through the shared local gate.
 
-    Compound callers pin the preauthorized target; any drift fails closed.
+    confirm preauthorizes only a known action: the caller names the capability
+    (expected_capability) or pins the whole target (compound expected_target).
+    The provider never decides which explicit action an approval covers.
     """
+    def result(status, reason, **fields):
+        return ExecutionResult(route, status, error=reason, expected_capability=expected_capability, **fields)
+    if expected_capability is not None and route.status == 'matched' and route.capability != expected_capability:
+        return result('execution_denied', 'expected_capability_mismatch')
     target = validate_target(route, parser, load_projects, capability_ids, bindings)
     if isinstance(target, ExecutionResult):
-        return target
+        return replace(target, expected_capability=expected_capability)
     def denied(status, reason):
-        return ExecutionResult(route, status, error=reason)
+        return result(status, reason)
     if expected_target is not None and not expected_target.same_action(target):
         return denied('execution_denied', 'authorization_target_changed')
     projects, project, schema, decision, handler = (target.projects, target.project,
         target.schema, target.decision, target.handler)
-    if decision.authorization == policy.Authorization.EXPLICIT and confirm is not True:
+    preauthorized = confirm is True and (expected_capability == route.capability or expected_target is not None)
+    if decision.authorization == policy.Authorization.EXPLICIT and confirm is True and not preauthorized:
+        return denied('authorization_required', 'expected_capability_required')
+    if decision.authorization == policy.Authorization.EXPLICIT and not preauthorized:
         approval = authorize(route, project) if authorize is not None else None
         if approval is None:
             return denied('authorization_required', 'explicit_authorization_required')
@@ -193,7 +203,7 @@ def dispatch(route, parser, load_projects, capability_ids, bindings, *, confirm=
             try:
                 plan = confinement.plan_for(route.capability, route.arguments, project, decision)
             except Exception:
-                return ExecutionResult(route, 'confinement_unavailable', authorization_satisfied=True,
+                return ExecutionResult(route, 'confinement_unavailable', authorization_satisfied=True, expected_capability=expected_capability,
                                        error='confinement_configuration_invalid',
                                        confinement=confinement.ConfinementResult(required=True, mode='unavailable', reason='confinement_configuration_invalid'))
             try:
@@ -207,7 +217,7 @@ def dispatch(route, parser, load_projects, capability_ids, bindings, *, confirm=
                     raise confinement.ConfinementUnavailable('invalid_enforcement_session')
             except Exception as exc:
                 status='confinement_unavailable' if isinstance(exc, confinement.ConfinementUnavailable) else 'confinement_setup_failed'
-                return ExecutionResult(route, status, authorization_satisfied=True,
+                return ExecutionResult(route, status, authorization_satisfied=True, expected_capability=expected_capability,
                                        error=status, confinement=confinement.unavailable_result(plan, str(exc) if isinstance(exc,confinement.ConfinementUnavailable) else 'setup_failed'))
         output = BoundedOutput()
         before = None
@@ -220,7 +230,7 @@ def dispatch(route, parser, load_projects, capability_ids, bindings, *, confirm=
                     raise ValueError('Invalid protected snapshot')
             except Exception as exc:
                 reason = exc.code if isinstance(exc, PROTECTED_REFUSALS) else 'pre_execution_verification_failed'
-                return ExecutionResult(route, 'verification_unavailable', authorization_satisfied=True,
+                return ExecutionResult(route, 'verification_unavailable', authorization_satisfied=True, expected_capability=expected_capability,
                                        error=reason,
                                        effect_verification=runtime_effects.unavailable(reason, committing=route.capability=='commit'),
                                        confinement=confined)
@@ -234,7 +244,7 @@ def dispatch(route, parser, load_projects, capability_ids, bindings, *, confirm=
                 native_started = invocation.started is True
                 confined = session.result
                 if not invocation.started:
-                    return ExecutionResult(route, 'confinement_setup_failed', authorization_satisfied=True,
+                    return ExecutionResult(route, 'confinement_setup_failed', authorization_satisfied=True, expected_capability=expected_capability,
                                            error=invocation.error, confinement=confined)
                 if (not isinstance(confined, confinement.ConfinementResult) or confined.applied is not True or
                         not plan.required_effects <= confined.enforced_effects):
@@ -253,7 +263,7 @@ def dispatch(route, parser, load_projects, capability_ids, bindings, *, confirm=
                 raise ValueError('Invalid handler outcome')
         except Exception as exc:
             if native and not native_started:
-                return ExecutionResult(route, 'confinement_setup_failed', authorization_satisfied=True,
+                return ExecutionResult(route, 'confinement_setup_failed', authorization_satisfied=True, expected_capability=expected_capability,
                                        error='confinement_setup_failed', confinement=confined)
             if isinstance(exc, (NattaError, OSError)):
                 output.write('natta: ' + bounded_text(str(exc), limit=1000) + '\n')
@@ -273,10 +283,17 @@ def dispatch(route, parser, load_projects, capability_ids, bindings, *, confirm=
         if verification.passed is False:
             status = 'effect_violation' if verification.violations else 'verification_unavailable'
             error = verification.reason
-        return ExecutionResult(route, status, authorization_satisfied=True, execution_started=True,
+        return ExecutionResult(route, status, authorization_satisfied=True, expected_capability=expected_capability, execution_started=True,
                                execution_succeeded=handler_succeeded and verification.passed is not False,
                                outcome=outcome, report=output.value(), report_truncated=output.truncated,
                                error=error, handler_succeeded=handler_succeeded, effect_verification=verification, confinement=confined)
+
+
+# Fixed explanations for preauthorization refusals; nothing ran in either case.
+AUTHORIZATION_MESSAGES = {
+    'expected_capability_required': '--confirm preauthorizes only a named action; add --expect CAPABILITY.',
+    'expected_capability_mismatch': 'The routed capability differs from --expect; nothing was authorized or executed.',
+}
 
 
 def render_result(result):
@@ -286,6 +303,8 @@ def render_result(result):
              f'  project: {result.route.project or "none"}',
              f'  authorization: {data["authorization"]}',
              f'  execution started: {"yes" if result.execution_started else "no"}']
+    if result.expected_capability:
+        lines.append(f'  expected capability: {result.expected_capability}')
     if result.status == 'authorization_declined':
         lines.append('Authorization declined.')
     if result.execution_succeeded is not None:
@@ -300,6 +319,8 @@ def render_result(result):
         lines.append(f'  error: {result.error}')
         if refusal_message(result.error):
             lines.append('  ' + refusal_message(result.error))
+        if result.error in AUTHORIZATION_MESSAGES:
+            lines.append('  ' + AUTHORIZATION_MESSAGES[result.error])
     if result.report:
         lines.append(result.report.rstrip())
     if result.report_truncated:

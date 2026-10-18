@@ -115,7 +115,9 @@ class ConfinementResult:
 
 
 # Explicit reviewed execution boundary, independent of capability type/effects.
-# Future workflows are not exempted automatically.
+# Future workflows are not exempted automatically: each set is a deliberate
+# security declaration, checked against capabilities.py by capability_integration.py.
+INSPECTION_TARGETS = frozenset(('status','context','diff'))
 WORKFLOW_TARGETS = frozenset(('build','test','verify','testflight'))
 UNCONFINED_TARGETS = WORKFLOW_TARGETS | {'commit'}
 DENIABLE_EFFECTS = policy.FORBIDDEN_EFFECTS | {policy.Effect.GIT_INDEX_WRITE,policy.Effect.GIT_COMMIT}

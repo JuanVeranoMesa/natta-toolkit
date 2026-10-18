@@ -32,7 +32,7 @@ class InteractiveAuthorizationTests(unittest.TestCase):
         handlers = self.bindings()
         args = ['--registry', str(self.registry), 'execute', request]
         if json_mode: args.append('--json')
-        if confirm: args.append('--confirm')
+        if confirm: args += ['--confirm', '--expect', capability]
         evidence = gate.runtime_effects.capture.return_value
         with patch.object(provider, 'run_provider', return_value=json.dumps({'choice':capability})) as run, \
              patch.object(natta, 'handler_bindings', return_value=handlers), \

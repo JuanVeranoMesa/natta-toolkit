@@ -11,7 +11,8 @@ import compound_execution as compound
 import confinement
 import natta
 import planning
-import planner_provider_v3 as planner
+import planner_provider
+planner = planner_provider.CURRENT
 import policy
 import router_codex as provider
 import runtime_effects
@@ -30,25 +31,47 @@ class CompoundTests(unittest.TestCase):
             {'capability': c, 'project': 'example', 'arguments': {'level': 2} if c == 'verify' else {}}
             for c in caps]}
 
+    @staticmethod
+    def goal(candidate):
+        """Untrusted goal text that names the candidate's projects and levels, as a
+        user would; local reconciliation requires both (NTT-010)."""
+        steps = candidate.get('steps', []) if isinstance(candidate, dict) else []
+        projects = [s['project'] for s in steps if isinstance(s, dict) and isinstance(s.get('project'), str)]
+        levels = [s['arguments']['level'] for s in steps if isinstance(s, dict) and isinstance(s.get('arguments'), dict)
+                  and type(s['arguments'].get('level')) is int]
+        names = ' and '.join(dict.fromkeys(projects)) or 'nothing'
+        return f'Untrusted goal for {names}' + ''.join(f' at level {v}' for v in dict.fromkeys(levels)) + '; never handler data'
+
     def invoke(self, caps=('build','test'), *, confirm=False, json_mode=True,
-               response='y\n', terminal=True, handlers=None, candidate=None):
+               response='y\n', terminal=True, handlers=None, candidate=None, approve=False):
+        """approve=True answers yes at the post-plan terminal prompt and returns the
+        structured result (JSON mode never prompts, so explicit plans need this)."""
         handlers = self.bindings() if handlers is None else handlers
         stdin = auth_fixture.Terminal(response) if terminal else io.StringIO(response)
         stdout = auth_fixture.Terminal()
         candidate = self.candidate(caps) if candidate is None else candidate
         reply = planner.Reply(text=json.dumps(candidate), external_requests=1)
-        args = ['--registry', str(self.registry), 'do', 'Untrusted goal; never handler data']
+        args = ['--registry', str(self.registry), 'do', self.goal(candidate)]
         if confirm: args.append('--confirm')
-        if json_mode: args.append('--json')
-        with patch.object(planner, 'propose', return_value=reply) as propose, \
-             patch.object(provider, 'run_provider', side_effect=AssertionError('per-step Luna')), \
-             patch.object(natta, 'prepare_route', side_effect=AssertionError('routing')), \
-             patch.object(natta, 'handler_bindings', return_value=handlers), \
-             patch('sys.stdin', stdin), patch('sys.stdout', stdout), \
-             patch.object(runtime_effects, 'capture_commit', return_value=runtime_effects.capture.return_value):
+        if json_mode and not approve: args.append('--json')
+        results = []
+        with contextlib.ExitStack() as stack:
+            propose = stack.enter_context(patch.object(planner, 'propose', return_value=reply))
+            stack.enter_context(patch.object(provider, 'run_provider', side_effect=AssertionError('per-step model call')))
+            stack.enter_context(patch.object(natta, 'prepare_route', side_effect=AssertionError('routing')))
+            stack.enter_context(patch.object(natta, 'handler_bindings', return_value=handlers))
+            stack.enter_context(patch('sys.stdin', stdin))
+            stack.enter_context(patch('sys.stdout', stdout))
+            stack.enter_context(patch.object(runtime_effects, 'capture_commit', return_value=runtime_effects.capture.return_value))
+            if approve:
+                stack.enter_context(patch.object(authorization, 'request_approval', return_value=True))
+                stack.enter_context(patch.object(compound, 'render', side_effect=lambda r: results.append(r) or ''))
             code = natta.main(args)
         propose.assert_called_once()
-        output = json.loads(stdout.getvalue()) if json_mode else stdout.getvalue()
+        if approve:
+            output = results[0].as_dict()
+        else:
+            output = json.loads(stdout.getvalue()) if json_mode else stdout.getvalue()
         return code, output, handlers, stdin
 
     def test_two_three_four_steps_once_in_order(self):
@@ -56,7 +79,7 @@ class CompoundTests(unittest.TestCase):
             events = [];handlers = self.bindings()
             for cap in caps:
                 handlers[cap].side_effect = lambda *args, cap=cap: (events.append(cap), gate.HandlerOutcome(0))[1]
-            code, data, handlers, _ = self.invoke(caps, confirm=True, handlers=handlers)
+            code, data, handlers, _ = self.invoke(caps, approve=True, handlers=handlers)
             self.assertEqual(code, 0);self.assertEqual(events, list(caps))
             self.assertEqual(data['status'], 'executed');self.assertTrue(data['execution_succeeded'])
             self.assertEqual([s['index'] for s in data['steps']], list(range(1,len(caps)+1)))
@@ -72,9 +95,11 @@ class CompoundTests(unittest.TestCase):
              patch.object(provider,'run_provider',return_value=json.dumps(self.candidate(('diff','build','test','verify')))) as run, \
              patch.object(natta,'prepare_route',side_effect=AssertionError('per-step routing')), \
              patch.object(natta,'handler_bindings',return_value=handlers),contextlib.redirect_stdout(io.StringIO()) as out:
-            code=natta.main(['--registry',str(self.registry),'do','--json','--confirm','goal'])
-        self.assertEqual(code,0);run.assert_called_once()
-        self.assertEqual(json.loads(out.getvalue())['plan']['external_requests'],1)
+            with patch.object(authorization,'request_approval',return_value=True) as prompt:
+                code=natta.main(['--registry',str(self.registry),'do','Show Example changes, build, test, then verify it at level 2'])
+        self.assertEqual(code,0);run.assert_called_once();prompt.assert_called_once()
+        self.assertIn('Result: passed',out.getvalue())
+        self.assertTrue(all(handlers[c].call_count==1 for c in ('diff','build','test','verify')))
 
     def test_automatic_never_prompts(self):
         with patch.object(authorization,'request_approval',side_effect=AssertionError('prompt')):
@@ -154,11 +179,33 @@ class CompoundTests(unittest.TestCase):
             self.assertFalse(any(h.called for h in handlers.values()))
             runtime_effects.capture.assert_not_called()
 
-    def test_confirm_skips_prompt(self):
+    def test_confirm_cannot_preauthorize_explicit_plan(self):
+        # NTT-004: --confirm predates the model's plan, so it cannot name the
+        # explicit steps. Refused after the one planner call, before any prompt,
+        # snapshot or handler, in both JSON and terminal modes.
+        for caps in (('build','test'),('diff','commit'),('testflight',),('status','verify')):
+            for json_mode in (True,False):
+                runtime_effects.capture.reset_mock()
+                with self.subTest(caps=caps,json_mode=json_mode), \
+                     patch.object(authorization,'request_approval',side_effect=AssertionError('prompt')):
+                    code,data,handlers,stdin=self.invoke(caps,confirm=True,json_mode=json_mode)
+                    self.assertEqual(code,1);self.assertEqual(stdin.tell(),0)
+                    if json_mode:
+                        self.assertEqual((data['status'],data['error']),('authorization_required','compound_preauthorization_unsupported'))
+                        self.assertFalse(data['execution_started']);self.assertFalse(data['authorization_satisfied'])
+                        self.assertTrue(all(s['status']=='not_started' for s in data['steps']))
+                    else:
+                        self.assertIn('compound_preauthorization_unsupported',data)
+                        self.assertNotIn('Continue?',data)
+                    self.assertFalse(any(h.called for h in handlers.values()))
+                    runtime_effects.capture.assert_not_called()
+
+    def test_confirm_on_automatic_plan_grants_nothing_and_never_prompts(self):
         with patch.object(authorization,'request_approval',side_effect=AssertionError('prompt')):
-            code,data,_,stdin=self.invoke(confirm=True)
+            code,data,handlers,stdin=self.invoke(('status','diff'),confirm=True)
         self.assertEqual(code,0);self.assertEqual(stdin.tell(),0)
-        self.assertTrue(data['authorization_satisfied'])
+        self.assertEqual(data['authorization'],'automatic')
+        self.assertEqual(handlers['status'].call_count,1);self.assertEqual(handlers['diff'].call_count,1)
 
     def test_json_never_prompts(self):
         with patch.object(authorization,'request_approval',side_effect=AssertionError('prompt')):
@@ -178,7 +225,7 @@ class CompoundTests(unittest.TestCase):
         caps=('diff','build','test','commit')
         for index,cap in enumerate(caps,1):
             handlers=self.bindings();handlers[cap].return_value=gate.HandlerOutcome(7)
-            code,data,_,_=self.invoke(caps,confirm=True,handlers=handlers)
+            code,data,_,_=self.invoke(caps,approve=True,handlers=handlers)
             self.assertEqual(code,7);self.assertEqual(data['failed_step'],index)
             self.assertFalse(data['execution_succeeded'])
             for pos,c in enumerate(caps,1):self.assertEqual(handlers[c].call_count,int(pos<=index))
@@ -186,7 +233,7 @@ class CompoundTests(unittest.TestCase):
 
     def test_handler_exception_stops(self):
         handlers=self.bindings();handlers['build'].side_effect=ValueError('bad handler')
-        code,data,_,_=self.invoke(confirm=True,handlers=handlers)
+        code,data,_,_=self.invoke(approve=True,handlers=handlers)
         self.assertEqual(code,1);self.assertEqual(data['error'],'handler_error')
         handlers['test'].assert_not_called()
 
@@ -194,27 +241,27 @@ class CompoundTests(unittest.TestCase):
         violation=runtime_effects.VerificationResult(performed=True,passed=False,
             violations=frozenset({policy.Effect.PROJECT_WRITE}),reason='effect_violation')
         with patch.object(runtime_effects,'compare',return_value=violation):
-            code,data,handlers,_=self.invoke(('build','test','commit'),confirm=True)
+            code,data,handlers,_=self.invoke(('build','test','commit'),approve=True)
         self.assertEqual(code,1);self.assertEqual(data['status'],'effect_violation')
         self.assertEqual(data['failed_step'],1);handlers['commit'].assert_not_called()
         self.assertEqual(data['steps'][0]['effect_verification']['violations'],['project_write'])
 
     def test_verification_unavailable_stops(self):
         with patch.object(runtime_effects,'capture',side_effect=OSError('unavailable')):
-            code,data,handlers,_=self.invoke(confirm=True)
+            code,data,handlers,_=self.invoke(approve=True)
         self.assertEqual(code,1);self.assertEqual(data['failed_step'],1)
         self.assertFalse(data['execution_started']);self.assertFalse(any(h.called for h in handlers.values()))
 
     def test_inspection_confinement_per_step_workflows_unconfined(self):
         with patch.object(confinement,'open_session',wraps=confinement.open_session) as session:
-            code,data,_,_=self.invoke(('status','diff','build','verify'),confirm=True)
+            code,data,_,_=self.invoke(('status','diff','build','verify'),approve=True)
         self.assertEqual(code,0);self.assertEqual(session.call_count,2)
         self.assertTrue(all(s['confinement']['applied'] for s in data['steps'][:2]))
         self.assertTrue(all(not s['confinement']['required'] and not s['confinement']['applied'] for s in data['steps'][2:]))
 
     def test_loss_of_inspection_validation_stops(self):
         with patch.object(confinement,'open_session',side_effect=confinement.ConfinementUnavailable('validation_stale')):
-            code,data,handlers,_=self.invoke(('diff','build'),confirm=True)
+            code,data,handlers,_=self.invoke(('diff','build'),approve=True)
         self.assertEqual(code,1);self.assertEqual(data['status'],'confinement_unavailable')
         self.assertFalse(any(h.called for h in handlers.values()))
 
@@ -224,22 +271,23 @@ class CompoundTests(unittest.TestCase):
         unknown=self.candidate(('diff','build'));unknown['steps'][1]['project']='invented';candidates.append(unknown)
         for candidate in candidates:
             with patch.object(authorization,'request_approval',side_effect=AssertionError('prompt')):
-                code,data,handlers,_=self.invoke(candidate=candidate,confirm=True)
+                code,data,handlers,_=self.invoke(candidate=candidate,approve=True)
             self.assertEqual(code,1);self.assertFalse(data['execution_started'])
             self.assertFalse(any(h.called for h in handlers.values()))
 
     def test_forbidden_policy_cannot_enter_execution(self):
         catalog=dict(policy.CATALOG);catalog['build']=replace(catalog['build'],authorization=policy.Authorization.FORBIDDEN)
         with patch.object(policy,'CATALOG',catalog):
-            code,data,handlers,_=self.invoke(confirm=True)
+            code,data,handlers,_=self.invoke(approve=True)
         self.assertEqual(code,1);self.assertEqual(data['status'],'invalid_plan')
         self.assertFalse(any(h.called for h in handlers.values()))
 
     def test_frozen_plan_and_arguments_unchanged(self):
         original=planning.validate(self.candidate(('diff','verify')),natta.make_parser(),natta.load_registry(self.registry),self.bindings())
         before=original.as_dict();handlers=self.bindings()
-        with patch.object(planning,'propose',return_value=original),contextlib.redirect_stdout(io.StringIO()):
-            result=compound.run('ignored',natta.make_parser(),lambda:natta.load_registry(self.registry),handlers,confirm=True)
+        with patch.object(planning,'propose',return_value=original),contextlib.redirect_stdout(io.StringIO()), \
+             patch.object(authorization,'request_approval',return_value=True):
+            result=compound.run('Show Example changes then verify it at level 2',natta.make_parser(),lambda:natta.load_registry(self.registry),handlers)
         self.assertIs(result.plan,original);self.assertEqual(original.as_dict(),before)
         self.assertEqual(handlers['verify'].call_args.args[2],(('level',2),))
         with self.assertRaises(FrozenInstanceError):original.steps[0].capability='build'
@@ -270,7 +318,7 @@ class CompoundTests(unittest.TestCase):
             self.registry.write_text(self.registry.read_text().replace('Example App','Changed Example'))
             return gate.HandlerOutcome(0)
         handlers['build'].side_effect=build
-        code,data,_,_=self.invoke(confirm=True,handlers=handlers)
+        code,data,_,_=self.invoke(approve=True,handlers=handlers)
         self.assertEqual(code,1);self.assertEqual(data['failed_step'],2)
         self.assertEqual(data['error'],'authorization_target_changed');handlers['test'].assert_not_called()
 
@@ -283,7 +331,7 @@ class CompoundTests(unittest.TestCase):
 
     def test_single_and_explicit_duplicate_occurrences(self):
         for caps in (('build',),('build','build')):
-            code,data,handlers,_=self.invoke(caps,confirm=True)
+            code,data,handlers,_=self.invoke(caps,approve=True)
             self.assertEqual(code,0);self.assertEqual(handlers['build'].call_count,len(caps))
             self.assertTrue(all(not s['confinement']['required'] for s in data['steps']))
 
@@ -291,7 +339,7 @@ class CompoundTests(unittest.TestCase):
         for project,arguments in ((None,{}),('example',{'level':True}),('example',{'level':4})):
             candidate=self.candidate(('diff','verify'))
             candidate['steps'][1].update(project=project,arguments=arguments)
-            code,data,handlers,_=self.invoke(candidate=candidate,confirm=True)
+            code,data,handlers,_=self.invoke(candidate=candidate,approve=True)
             self.assertEqual(code,1);self.assertEqual(data['status'],'invalid_plan')
             self.assertFalse(any(h.called for h in handlers.values()))
 
@@ -306,7 +354,7 @@ class CompoundTests(unittest.TestCase):
         plan=planning.validate(self.candidate(('diff','build')),natta.make_parser(),natta.load_registry(self.registry),handlers)
         with patch.object(planning,'propose',return_value=plan), \
              patch.object(authorization,'request_approval',return_value=False),contextlib.redirect_stdout(io.StringIO()):
-            result=compound.run('ignored',natta.make_parser(),lambda:natta.load_registry(self.registry),handlers)
+            result=compound.run('Show Example changes then build it',natta.make_parser(),lambda:natta.load_registry(self.registry),handlers)
         data=result.as_dict()
         self.assertEqual(data['status'],'authorization_declined');self.assertFalse(data['execution_started'])
         self.assertFalse(data['authorization_satisfied']);self.assertIsNone(data['failed_step'])
@@ -331,7 +379,7 @@ class CompoundCommitTests(unittest.TestCase):
         handlers['commit']=Mock(wraps=bindings['commit'])
         candidate={'status':'planned','steps':[{'capability':c,'project':'example','arguments':{}} for c in ('build','test','commit')]}
         reply=planner.Reply(text=json.dumps(candidate),external_requests=1)
-        commands=[]
+        commands=[];results=[]
         import subprocess
         real_run=subprocess.run
         def record(argv,*args,**kwargs):
@@ -339,9 +387,11 @@ class CompoundCommitTests(unittest.TestCase):
         with patch.object(planner,'propose',return_value=reply) as propose, \
              patch.object(provider,'run_provider',side_effect=AssertionError('Luna')), \
              patch.object(subprocess,'run',side_effect=record), \
-             patch.object(natta,'handler_bindings',return_value=handlers),contextlib.redirect_stdout(io.StringIO()) as out:
-            code=natta.main(['--registry',str(self.registry),'do','--json','--confirm','build test commit fixture'])
-        data=json.loads(out.getvalue());self.assertEqual(code,0);propose.assert_called_once()
+             patch.object(natta,'handler_bindings',return_value=handlers),contextlib.redirect_stdout(io.StringIO()), \
+             patch.object(authorization,'request_approval',return_value=True), \
+             patch.object(compound,'render',side_effect=lambda r:results.append(r) or ''):
+            code=natta.main(['--registry',str(self.registry),'do','build test commit fixture'])
+        data=results[0].as_dict();self.assertEqual(code,0);propose.assert_called_once()
         commit=data['steps'][2]['result']['commit']
         self.assertTrue(commit['committed']);self.assertFalse(commit['pushed'])
         self.assertEqual(self.git('rev-parse','HEAD^').strip().decode(),self.initial)

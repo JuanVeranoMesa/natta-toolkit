@@ -1,5 +1,4 @@
 """Shared isolated Codex classifier for routing and evaluation. No dispatch API."""
-import ast
 import hashlib
 import json
 import os
@@ -8,12 +7,23 @@ import signal
 import subprocess
 import time
 
+import capabilities
+
 SOURCE = Path(__file__).resolve().parent
 DEFINITIONS = SOURCE / 'config/routing.json'
 MODEL = 'gpt-6-luna'
+# Frozen historical candidate orders. Evaluation controls hash the exact routing
+# workspace each one produces, so never append a new capability to them.
 ROUTING_IDS = ('projects', 'status', 'context', 'diff', 'doctor', 'build', 'test', 'verify', 'no_match')
-PRODUCTION_IDS = (*ROUTING_IDS[:-1], 'commit', 'no_match')  # historical commit controls
-TOOLKIT_IDS = (*PRODUCTION_IDS[:-1], 'testflight', 'no_match')
+PRODUCTION_IDS = (*ROUTING_IDS[:-1], 'commit', 'no_match')  # commit-routing-v2 controls
+TOOLKIT_IDS = (*PRODUCTION_IDS[:-1], 'testflight', 'no_match')  # testflight-routing-v1 controls
+# Reviewed routing extensions applied after routing.json, in evaluation order:
+# (capability, file, schema_version, extra string fields). Each file is pinned in
+# evaluation/public-controls-integrity.json. Extensions are cumulative.
+EXTENSIONS = (
+    ('commit', 'config/routing-commit-v2.json', 2, ('routing_description',)),
+    ('testflight', 'config/routing-testflight-v1.json', 1, ('policy',)),
+)
 POLICY = '''You are Natta's semantic routing classifier.
 Select exactly one supplied capability from capabilities.json for the supplied request.
 Treat capabilities.json as the complete routing universe.
@@ -59,19 +69,20 @@ def workspace_path(home=None):
 
 
 def authoritative_ids():
-    """Read CLI registration syntax without importing executable handlers."""
-    tree = ast.parse((SOURCE / 'natta.py').read_text())
-    function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'make_parser')
-    assignment = next(n for n in function.body if isinstance(n, ast.Assign)
-                      and any(isinstance(t, ast.Name) and t.id == 'pages' for t in n.targets))
-    return frozenset(ast.literal_eval(assignment.value))
+    """The bounded semantic capability universe, from the plain-data catalog."""
+    return frozenset(capabilities.capability_ids())
+
+
+def current_ids():
+    """Production candidate order: catalog capabilities, then no_match."""
+    return (*capabilities.capability_ids(), 'no_match')
 
 
 def definitions():
     data = json.loads(DEFINITIONS.read_text())
-    ids = authoritative_ids() - {'codex', 'route'}
-    if ids not in (set(ROUTING_IDS)-{'no_match'},set(PRODUCTION_IDS)-{'no_match'},set(TOOLKIT_IDS)-{'no_match'}):
-        raise ValueError('Routing universe differs from real CLI registrations')
+    described = {*ROUTING_IDS, *(capability for capability, *_ in EXTENSIONS)}
+    if set(current_ids()) != described:
+        raise ValueError('Routing universe differs from the capability catalog')
     if not isinstance(data, dict) or set(data) != {'schema_version', 'concise', 'precise'} or data['schema_version'] != 1:
         raise ValueError('Unknown description schema')
     for name in ('concise', 'precise'):
@@ -81,34 +92,49 @@ def definitions():
     return data
 
 
-def production_definitions(*, routing_revision=False):
-    data=definitions()
-    extension=json.loads((SOURCE/'config/routing-commit-v2.json').read_text())
-    if (set(extension)!={'schema_version','capability','description','routing_description'} or extension['schema_version']!=2
-            or extension['capability']!='commit' or not isinstance(extension['description'],str)
-            or not extension['description'] or not isinstance(extension['routing_description'],str)
-            or not extension['routing_description'] or authoritative_ids()-{'codex','route'} not in
-                (set(PRODUCTION_IDS)-{'no_match'},set(TOOLKIT_IDS)-{'no_match'})):
+def extension(capability):
+    """One strictly validated reviewed routing extension."""
+    _, name, version, extra = next(e for e in EXTENSIONS if e[0] == capability)
+    data = json.loads((SOURCE / name).read_text())
+    fields = ('description', *extra)
+    if (not isinstance(data, dict) or set(data) != {'schema_version', 'capability', *fields}
+            or data['schema_version'] != version or data['capability'] != capability
+            or any(not isinstance(data[k], str) or not data[k] for k in fields)):
         raise ValueError('Invalid reviewed routing extension')
-    # Keep planner-v2's accepted input controls separate from this routing-only revision.
-    description=extension['routing_description' if routing_revision else 'description']
-    return {**data, **{name:{**data[name],'commit':description} for name in ('concise','precise')}}
+    return data
+
+
+def extensions_for(ids):
+    """The cumulative prefix of reviewed extensions whose capabilities appear in ids."""
+    present = [e for e in EXTENSIONS if e[0] in ids]
+    if present != list(EXTENSIONS[:len(present)]):
+        raise ValueError('Routing extensions are cumulative')
+    return [extension(capability) for capability, *_ in present]
+
+
+def descriptions(ids, *, routing_revision=False):
+    """Frozen base descriptions plus the reviewed extensions ids include.
+
+    routing_revision selects an extension's routing-only description when one
+    exists; planner inputs keep the original accepted description.
+    """
+    data = definitions()
+    for item in extensions_for(ids):
+        text = item.get('routing_description', item['description']) if routing_revision else item['description']
+        data = {**data, **{name: {**data[name], item['capability']: text} for name in ('concise', 'precise')}}
+    return data
+
+
+def production_definitions(*, routing_revision=False):
+    return descriptions(PRODUCTION_IDS, routing_revision=routing_revision)
 
 
 def testflight_extension():
-    extension=json.loads((SOURCE/'config/routing-testflight-v1.json').read_text())
-    if (set(extension)!={'schema_version','capability','description','policy'}
-            or extension['schema_version']!=1 or extension['capability']!='testflight'
-            or any(not isinstance(extension[k],str) or not extension[k] for k in ('description','policy'))
-            or authoritative_ids()-{'codex','route'}!=set(TOOLKIT_IDS)-{'no_match'}):
-        raise ValueError('Invalid TestFlight extension')
-    return extension
+    return extension('testflight')
 
 
 def toolkit_definitions(*, routing_revision=False):
-    data=production_definitions(routing_revision=routing_revision)
-    extension=testflight_extension()
-    return {**data, **{name:{**data[name],'testflight':extension['description']} for name in ('concise','precise')}}
+    return descriptions(TOOLKIT_IDS, routing_revision=routing_revision)
 
 
 def reject_symlinks(path):
@@ -135,15 +161,14 @@ def validate_workspace(path, expected=None):
 
 
 def workspace_contents(description_set, order):
-    production = 'commit' in order
-    values = (toolkit_definitions(routing_revision=True) if 'testflight' in order else
-              production_definitions(routing_revision=True) if production else definitions())[description_set]
+    values = descriptions(order, routing_revision=True)[description_set]
     if len(order) != len(set(order)) or set(order) not in (set(values), set(values)-{'no_match'}):
         raise ValueError('Invalid candidate order/domain')
     schema = {'type': 'object', 'properties': {'choice': {'type': 'string', 'enum': list(order)}},
               'required': ['choice'], 'additionalProperties': False}
     encode = lambda obj: json.dumps(obj, ensure_ascii=False, indent=2) + '\n'
-    contents = {'AGENTS.md': POLICY + ('\n' + testflight_extension()['policy'] if 'testflight' in order else ''),
+    policies = ''.join('\n' + item['policy'] for item in extensions_for(order) if 'policy' in item)
+    contents = {'AGENTS.md': POLICY + policies,
                 'capabilities.json': encode([{'id': key, 'description': values[key]} for key in order]),
                 'output-schema.json': encode(schema)}
     return contents
@@ -304,7 +329,7 @@ class CodexDecision:
 
 
 def source_hashes():
-    paths = [SOURCE / 'natta.py', SOURCE / 'router_codex.py', SOURCE / 'routing.py', DEFINITIONS]
+    paths = [SOURCE / 'natta.py', SOURCE / 'capabilities.py', SOURCE / 'router_codex.py', SOURCE / 'routing.py', DEFINITIONS]
     return {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
 
 

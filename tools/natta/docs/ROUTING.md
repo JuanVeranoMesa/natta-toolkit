@@ -10,9 +10,9 @@
 
 # Semantic routing contract
 
-`natta route REQUEST` is the first production-facing semantic selector. GPT-6
-Luna is the accepted Natta v1 routing provider. **Luna selects. Natta
-validates. Luna does not execute.** `execute` and bounded `do` authorize and dispatch
+`natta route REQUEST` is the first production-facing semantic selector. The semantic
+model (`gpt-6-luna` through the Codex CLI) is the accepted Natta v1 routing provider. **The semantic
+model selects. Natta validates. The model does not execute.** `execute` and bounded `do` authorize and dispatch
 validated deterministic handlers. Autonomous orchestration is not implemented. Explicit build/test/verify and inspection
 commands still bypass semantic routing and perform their deterministic work.
 
@@ -33,8 +33,10 @@ provider argv construction and local compatibility probes have one implementatio
 `config/routing.json` is the production metadata source: an unchanged byte copy of
 the frozen benchmark descriptions. The evaluation snapshot remains immutable;
 evaluation checks parity with production metadata. Descriptions register no new
-handlers: the authoritative argparse registration table in `natta.py` is read
-via AST without importing handlers and checked against the fixed routing universe.
+handlers: capability identity comes from the plain-data catalog
+`capabilities.py` (imported directly, no handler imports or source parsing),
+and `router_codex.definitions()` fails closed unless the catalog equals the
+reviewed base descriptions plus the cumulative `router_codex.EXTENSIONS`.
 
 The historical Phase 4D domain is projects, status, context, diff, doctor,
 build, test, verify and no_match. Current production uses the additive commit and
@@ -59,14 +61,14 @@ exists. See [the route result contract](RESULT_CONTRACT.md#route-result).
 
 ## Deterministic parameter resolution
 
-**Luna selects the capability. Natta resolves and validates parameters. Nothing
+**The semantic model selects the capability. Natta resolves and validates parameters. Nothing
 executes.** `parameters.py` is a pure stdlib resolver: no provider, filesystem or
 execution access. It receives validated registry projects and a parameter schema
 derived from argparse. The production CLI applies its immutable result to the
 immutable route result. Evaluation still calls only the shared capability provider
 and never invokes this resolver. Phase 4D accuracy validates capability selection,
 not parameter resolution; local resolution has separate deterministic tests.
-There is exactly one Luna classification call per successful route, with unchanged
+There is exactly one semantic-model classification call per successful route, with unchanged
 prompt, schema, candidate order, descriptions, model and provider behavior.
 
 The authoritative source is the existing `~/.config/natta/projects.toml` (or root
@@ -172,7 +174,7 @@ to workspace source and no application/user data are copied into runtime state.
 
 Doctor performs read-only definition/workspace checks and bounded local
 `codex --version`, `codex exec --help`, and `codex features list` compatibility
-probes. It never makes a Luna request or regenerates files. Missing/stale safe
+probes. It never makes a semantic-model request or regenerates files. Missing/stale safe
 workspace state is reported as regenerable by route; unsafe state is unavailable.
 Semantic-router failures render UNAVAILABLE and do not break deterministic core
 health; existing core checks retain their exit semantics. This is structural
@@ -181,7 +183,7 @@ readiness, not authentication, rate-limit, network or model-access verification.
 ## Deferred work and historical local evaluation
 
 This explicit route command always exercises semantic AI. A future orchestrator
-may first resolve deterministic intent and call Luna only when needed. There is
+may first resolve deterministic intent and call the semantic model only when needed. There is
 no heuristic/regex router here. Runtime project availability checks and broader typed arguments remain separate
 concerns. Single-capability execution has its local authorization gate; Phase 8A
 introduced separate experimental planning; Phase 8B adds bounded frozen-plan execution. A matched capability does not establish that a specific
@@ -259,11 +261,12 @@ model is downloaded. Public B/C benchmarks have not been performed during extrac
 ## Separate execution gate
 
 `natta route` permanently reports without executing. `natta execute [--json]
-[--confirm] REQUEST` uses the same one-call capability selection and local resolver
+[--confirm] [--expect CAPABILITY] REQUEST` uses the same one-call capability selection and local resolver
 and policy, then revalidates before one bound handler invocation. Authorization
 comes only from policy and the dedicated invocation-local CLI flag, never request
 wording or model output. Automatic permits execution only in execute; explicit
-requires terminal approval or --confirm; forbidden cannot execute. See [EXECUTION_GATE.md](EXECUTION_GATE.md).
+requires terminal approval or `--confirm --expect CAPABILITY` matching the route;
+forbidden cannot execute. See [EXECUTION_GATE.md](EXECUTION_GATE.md).
 
 Runtime effect verification now wraps semantic execute with protected project/Git
 before/after evidence, compared against authoritative policy. Handler success is
@@ -273,7 +276,7 @@ external-service absence is provided. See [observable scope and contract](RUNTIM
 
 Semantic status/context/diff use a current host-validated macOS inspection
 sandbox and mandatory runtime verification. Build/test/verify require explicit
-authorization (terminal approval or --confirm) and mandatory protected-state snapshots, but no native confinement.
+authorization (terminal approval or --confirm --expect) and mandatory protected-state snapshots, but no native confinement.
 Xcode sandbox-exec research is deliberately deferred, not a production dependency.
 Policy-denied effects are distinct from actively enforced effects: workflow
 network, external services and unrelated filesystem writes are residual risks.
@@ -282,7 +285,7 @@ See [current confinement boundary](MACOS_CONFINEMENT.md).
 
 ## Separate Phase 8A planner
 
-`natta plan [--json] GOAL` uses planner_provider_v3.py (testflight-planner-v1), reusing the
+`natta plan [--json] GOAL` uses the current planner revision (`planner_provider.CURRENT`, testflight-planner-v1), reusing the
 separate planner workspace and additive frozen controls. The existing single-selection provider remains unchanged.
 The planner proposes bounded step-local project/argument suggestions; planning.py
 independently validates these against local registry/CLI/policy metadata.
@@ -306,8 +309,10 @@ Historical provider domains remain separate; public definitions have sanitized
 project names/control hashes and private results are excluded. See [COMMIT.md](COMMIT.md).
 
 Interactive semantic authorization is terminal-only and continues the same frozen
-resolved action without a second Luna call. --json/non-TTY never prompt; --confirm
-preauthorizes one invocation. Direct commands stay noninteractive. See
+resolved action without a second semantic-model call. --json/non-TTY never prompt.
+`execute --confirm` preauthorizes one invocation only together with `--expect
+CAPABILITY`, and only when the route selects exactly that capability; `do --confirm`
+cannot preauthorize a plan with explicit steps. Direct commands stay noninteractive. See
 [authorization contract](EXECUTION_GATE.md#interactive-authorization).
 
 ## TestFlight extension

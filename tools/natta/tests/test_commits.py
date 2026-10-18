@@ -21,7 +21,8 @@ import runtime_effects
 import semantic_execution
 import confinement
 import planning
-import planner_provider_v2 as planner
+import planner_provider
+planner = planner_provider.COMMIT_V2
 
 
 class CommitTests(unittest.TestCase):
@@ -213,7 +214,7 @@ class CommitTests(unittest.TestCase):
         self.dirty();real=natta.handle_commit
         with patch.object(natta,'handle_commit',wraps=real) as handler, \
              patch.object(confinement,'open_session',side_effect=AssertionError('inspection sandbox')):
-            code,out,model=self.invoke(['execute','--json','--confirm','Commit Example'])
+            code,out,model=self.invoke(['execute','--json','--confirm','--expect','commit','Commit Example'])
         data=json.loads(out);self.assertEqual(code,0);model.assert_called_once();handler.assert_called_once()
         self.assertEqual(handler.call_args.args[1].alias,'example');self.assertEqual(handler.call_args.args[2],())
         self.assertEqual(data['result']['commit']['message'],'Update Example App')

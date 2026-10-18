@@ -8,11 +8,12 @@ from pathlib import Path
 import time
 import natta
 import planning
-import planner_provider_v2 as planner
+import planner_provider
 import router_codex as router
 import routing
 
 ROOT=Path(__file__).resolve().parent
+planner=planner_provider.COMMIT_V2
 
 
 def sources(mode,projects):
@@ -69,7 +70,7 @@ def run(mode,authorization,output,registry=natta.DEFAULT_REGISTRY,*,suite="basel
         'planned_external_requests':count,'actual_external_requests':0,'executed':False,
         'predeclared_acceptance':control['predeclared_acceptance'],'control_hashes':hashes,
         'source_hashes':{name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in
-            ('natta.py','commits.py','router_codex.py','routing.py','planning.py','planner_provider.py','planner_provider_v2.py','parameters.py','policy.py','runtime_effects.py','execution.py','commit_evaluation.py',*additional_source_files)},
+            ('natta.py','commits.py','router_codex.py','routing.py','planning.py','planner_provider.py','capabilities.py','parameters.py','policy.py','runtime_effects.py','execution.py','commit_evaluation.py',*additional_source_files)},
         'predictions':[]}
     correct=failures=0;incorrect=[];groups={g:[] for g in ('unsupported','adversarial')}
     calls=0;started=time.perf_counter()

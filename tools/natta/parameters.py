@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import re
 import unicodedata
 
+import capabilities
+
 
 @dataclass(frozen=True)
 class ParameterSchema:
@@ -28,7 +30,7 @@ def schema_for(parser, capability):
     Optional execution flags are deliberately not extracted.
     """
     commands = next(action for action in parser._actions if isinstance(action, argparse._SubParsersAction))
-    if capability not in commands.choices or capability in ('route', 'codex'):
+    if capability not in commands.choices or capability not in capabilities.capability_ids():
         raise ValueError('Unknown parameter schema')
     actions = commands.choices[capability]._actions
     required = {action.dest: action for action in actions if action.required}

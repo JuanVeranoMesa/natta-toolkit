@@ -4,22 +4,22 @@
 
 # Single-capability semantic execution
 
-Luna selects → Natta validates → deterministic resolver → deterministic policy →
+The semantic model selects → Natta validates → deterministic resolver → deterministic policy →
 invocation-local authorization → protected snapshot → revalidated bound handler →
-post-snapshot/effect verification. Luna never authorizes
+post-snapshot/effect verification. The semantic model never authorizes
 or executes. `natta route` remains permanently reporting-only. Bounded `natta do`
 composes this gate after whole-plan authorization. Interactive terminal confirmation is supported.
 
 ```sh
 natta execute [--json] "Show me what changed in Sample"
 natta execute "Build Example for the simulator"                    # TTY: prompts
-natta execute [--json] --confirm "Build Example for the simulator" # may build
+natta execute [--json] --confirm --expect build "Build Example for the simulator" # may build
 ```
 
 The root `--registry PATH` option retains its usual position before the command.
-Each semantic execution performs the same one Luna selection as route. No new
+Each semantic execution performs the same one semantic-model selection as route. No new
 prompt/schema/descriptions/order/model, retries or provider fallbacks are introduced.
-Local resolution, authorization, dispatch and deterministic handlers make no Luna
+Local resolution, authorization, dispatch and deterministic handlers make no semantic-model
 calls. Direct projects/status/context/diff/doctor/build/test/verify commands keep
 their original behavior, bypassing semantic selection and this authorization gate.
 
@@ -27,8 +27,27 @@ their original behavior, bypassing semantic selection and this authorization gat
 
 The immutable policy catalog, not capability-name conditionals or request wording,
 determines authorization. Automatic policy permits dispatch after all local gates.
-Explicit policy requires an affirmative terminal response or `--confirm` on this invocation. Words such as "please",
+Explicit policy requires an affirmative terminal response after routing, or
+`--confirm --expect CAPABILITY` on this invocation. Words such as "please",
 "yes", "definitely run it" and "I authorize this" cannot satisfy that gate.
+
+Preauthorization must name the action it covers; the model never decides which
+explicit action an earlier approval applies to:
+
+- `--confirm` without `--expect` is refused before routing (no provider call) with
+  `invalid_request` / `expected_capability_required`.
+- `--expect CAPABILITY` accepts only catalog capability IDs. After the single
+  routing call, a matched route whose capability differs fails with
+  `execution_denied` / `expected_capability_mismatch` before any prompt, snapshot
+  or handler. The result reports `expected_capability`.
+- `--expect` without `--confirm` is a guard only: a match still prompts normally.
+- Automatic capabilities never need approval or an expectation. No-match,
+  unresolved and provider-error routes execute nothing either way.
+- The shared gate enforces the same rule: `dispatch(confirm=True)` satisfies
+  explicit policy only with an equal `expected_capability` (direct `testflight`
+  names its own capability) or a compound caller's pinned target.
+- `do --confirm` cannot preauthorize a model-proposed plan that contains an
+  explicit step; see [compound execution](COMPOUND_EXECUTION.md).
 Authorization is never persisted. Forbidden policy cannot be overridden by any flag.
 Neither confirmation nor automatic policy overrides unresolved parameters, unknown
 capabilities, errors, denied effects or missing bindings.
@@ -42,9 +61,9 @@ share their existing workflow logic; commit and TestFlight have dedicated bound 
 same implementations. There are no dynamically imported handlers, shell fragments,
 model-produced argv or arbitrary flags.
 
-The execute control parser is deliberately outside the `pages` target registrations
-read by the frozen provider. Execute, route and Codex are not selectable execution
-targets. Plan, do and confinement are also controls outside the target registrations.
+Execute, route, Codex, plan, do and confinement are direct-only commands: they
+are in `capabilities.COMMANDS` but not in `capabilities.CAPABILITIES`, so they are
+never selectable execution targets.
 
 Immediately before invoking a handler, the gate validates exact binding/catalog
 coverage, reloads the authoritative registry, reads the actual parser schema and
@@ -120,7 +139,7 @@ and enforcement gaps. No automatic rollback is performed.
 
 Semantic status/context/diff use a current host-validated macOS inspection
 sandbox and mandatory runtime verification. Build/test/verify require explicit
-authorization (terminal approval or --confirm) and mandatory protected-state snapshots, but no native confinement.
+authorization (terminal approval or --confirm --expect) and mandatory protected-state snapshots, but no native confinement.
 Xcode sandbox-exec research is deliberately deferred, not a production dependency.
 Policy-denied effects are distinct from actively enforced effects: workflow
 network, external services and unrelated filesystem writes are residual risks.
@@ -146,8 +165,9 @@ Human-readable execute prompts only when **both sys.stdin.isatty() and
 sys.stdout.isatty() are true**, explicit authorization is required, and every
 local eligibility/policy/binding check has passed. No timing or environment-variable
 heuristics are used. JSON mode never supplies an authorization callback, even on a
-terminal. Redirected stdin or stdout does not prompt. --confirm is invocation-local
-preauthorization: it skips the prompt in all modes, still subject to every safety gate.
+terminal. Redirected stdin or stdout does not prompt. `--confirm --expect CAPABILITY`
+is invocation-local preauthorization of that named action: it skips the prompt in
+all modes only after the route equals the expectation, still subject to every safety gate.
 
 The display contains only the frozen validated capability, local project display
 name and bounded arguments (for example verify Sample App level=2). It does not
@@ -176,7 +196,7 @@ lines and returns true/false or null for unavailable prompting. It has no provid
 resolver, policy or execution dependency. The bounded do caller reuses this
 input mechanism for whole-plan authorization before dispatching any step. Route and plan stay
 reporting-only. Direct build/test/verify/commit commands remain noninteractive and
-use no Luna requests. No request/approval logging or persisted authorization exists.
+use no semantic-model requests. No request/approval logging or persisted authorization exists.
 
 Current inspection requires matching host/profile/source identity and fresh
 local validation when that identity changes. The public manifest carries no

@@ -186,7 +186,7 @@ explicit publish/distribute/review/public-release requests. It is conservative;
 phrasing that mentions public publication may be rejected even in a disclaimer.
 
 No real evaluation has been run from Codex. These opt-in host commands perform
-12 and 16 real Luna calls, never handlers/uploads, and exclusively create private
+12 and 16 real semantic-model calls, never handlers/uploads, and exclusively create private
 new artifacts (existing output paths refuse):
 
 ```sh
@@ -235,7 +235,7 @@ artifacts and explicit version/build mutation remain separate future work.
 Added:
 
 - testflight.py — bounded product workflow and structured result.
-- planner_provider_v3.py — additive provider controls, max4 unchanged.
+- planner_provider.py `TESTFLIGHT_V1` revision — additive provider controls, max4 unchanged.
 - testflight_semantics.py — conservative public-release veto.
 - testflight_evaluation.py — frozen extension entry point using the existing runner.
 - config/routing-testflight-v1.json — additive description/policy.
@@ -259,5 +259,5 @@ Historical initial implementation validation: 436 total tests, including 40 new 
 Apple archive/export/upload commands are mocked. All 28 pre-existing evaluation/
 config artifacts were checked by SHA-256 and remain byte-identical. Existing
 provider-control tests also verify historical prompt/description/schema parity.
-No real Luna calls, app builds/tests/commits, archives/uploads, harness commits or
+No real semantic-model calls, app builds/tests/commits, archives/uploads, harness commits or
 pushes were performed. Local metadata/signing checks ran as described above.

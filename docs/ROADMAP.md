@@ -14,4 +14,4 @@ provider interfaces, evaluation/calibration, improved portability, and separatel
 reviewed isolation. Persistent analytics, remote inference and broader workflows
 are future ideas rather than v1 features. No autonomous agents, arbitrary script
 loading, provider fallback, automatic repair or public app release is implemented.
-Public CI and community process can be considered after manual v1 review.
+A minimal public CI test workflow exists; community process can be considered later.

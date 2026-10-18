@@ -145,7 +145,7 @@ model is downloaded. Public B/C benchmarks have not been performed during extrac
 ## Production semantic selection
 
 `natta route` is an atomic AI capability with one outcome: return a bounded
-proposed capability as structured data. Luna selects; Natta validates; Luna does
+proposed capability as structured data. The semantic model selects; Natta validates; the model does
 not execute. The accepted provider is gpt-6-luna, selected through source evaluation. Public definitions retain the bounded
 selection contract; private empirical outputs are excluded.
 
@@ -161,7 +161,7 @@ heuristic capability routing are not implemented. See [ROUTING.md](ROUTING.md).
 
 After validated capability selection, production route derives required parameters
 from argparse and resolves registry aliases/display names plus explicit verify
-levels using pure stdlib `parameters.py`. Luna still makes one capability choice;
+levels using pure stdlib `parameters.py`. The semantic model still makes one capability choice;
 Natta resolves and validates locally; nothing executes. The evaluator remains
 capability-only. This layer adds no second model request, project catalog, broad
 NLP, runtime state or general permission framework. Structured completeness is
@@ -199,7 +199,7 @@ external-service absence is provided. See [observable scope and contract](RUNTIM
 
 Semantic status/context/diff use a current host-validated macOS inspection
 sandbox and mandatory runtime verification. Build/test/verify require explicit
-authorization (terminal approval or --confirm) and mandatory protected-state snapshots, but no native confinement.
+authorization (terminal approval or --confirm --expect) and mandatory protected-state snapshots, but no native confinement.
 Xcode sandbox-exec research is deliberately deferred, not a production dependency.
 Policy-denied effects are distinct from actively enforced effects: workflow
 network, external services and unrelated filesystem writes are residual risks.
@@ -209,7 +209,7 @@ See [current confinement boundary](MACOS_CONFINEMENT.md).
 ## Phase 8A bounded orchestration planning
 
 The separate `plan` surface proposes one to four linear capability intents in one
-Luna call. Local Natta validation binds them to registry projects, CLI parameter
+semantic-model call. Local Natta validation binds them to registry projects, CLI parameter
 schemas, policy and static handler coverage. It computes authorization/effect
 summaries but dispatches nothing. Model suggestions grant no authority.
 `route` selects/reports one capability, `execute` authorizes one existing handler,
@@ -232,8 +232,10 @@ Historical provider domains remain separate; public definitions have sanitized
 project names/control hashes and private results are excluded. See [COMMIT.md](COMMIT.md).
 
 Interactive semantic authorization is terminal-only and continues the same frozen
-resolved action without a second Luna call. --json/non-TTY never prompt; --confirm
-preauthorizes one invocation. Direct commands stay noninteractive. See
+resolved action without a second semantic-model call. --json/non-TTY never prompt.
+`execute --confirm` preauthorizes one invocation only together with `--expect
+CAPABILITY`, and only when the route selects exactly that capability; `do --confirm`
+cannot preauthorize a plan with explicit steps. Direct commands stay noninteractive. See
 [authorization contract](EXECUTION_GATE.md#interactive-authorization).
 
 ## TestFlight extension

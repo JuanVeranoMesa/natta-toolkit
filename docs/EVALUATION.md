@@ -58,9 +58,11 @@ EXECUTION_POLICY, EXECUTION_GATE, RUNTIME_EFFECTS, CONFINEMENT,
 MACOS_CONFINEMENT, PLANNING, COMPOUND_EXECUTION, COMMIT and TESTFLIGHT under
 `tools/natta/docs/`. Phase-labelled sections preserve design rationale and
 historical domain evolution. Historical host narrative/results are excluded or
-marked as source history. Current production planning uses `planner_provider_v3`
-(status/context/diff/build/test/verify/commit/testflight); v1/v2 provider modules
-remain controlled historical evaluation domains. Current behavior takes precedence
+marked as source history. Current production planning uses the
+`planner_provider.CURRENT` revision (testflight-planner-v1:
+status/context/diff/build/test/verify/commit/testflight); the phase8a-v1 and
+phase8a-commit-v2 revisions in the same module remain controlled historical
+evaluation domains with byte-identical provider inputs. Current behavior takes precedence
 over historical phase scope. `docs/ROADMAP.md` contains future ideas only.
 
 Two commit-evidence tests now pin sanitized public input bytes and preserve a

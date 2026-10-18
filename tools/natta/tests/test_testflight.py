@@ -14,7 +14,8 @@ import authorization
 import compound_execution
 import natta
 import planning
-import planner_provider_v3 as planner
+import planner_provider
+planner = planner_provider.TESTFLIGHT_V1
 import policy
 import router_codex as provider
 import runtime_effects
@@ -422,11 +423,12 @@ class TestFlightSemanticTests(unittest.TestCase):
     def handlers(self):
         return {c:Mock(return_value=gate.HandlerOutcome(0)) for c in policy.CATALOG}
 
-    def invoke(self,command,request,*,json_mode=True,confirm=False,response='yes\n',candidate=None,handlers=None):
+    def invoke(self,command,request,*,json_mode=True,confirm=False,response='yes\n',candidate=None,handlers=None,expect=None):
         handlers=self.handlers() if handlers is None else handlers
         args=['--registry',str(self.registry),command,request]
         if json_mode:args.append('--json')
         if confirm:args.append('--confirm')
+        if expect:args+=['--expect',expect]
         source=terminal_fixture.Terminal(response);out=terminal_fixture.Terminal()
         choice='testflight'
         reply=planner.Reply(json.dumps(candidate or {'status':'planned','steps':[{'capability':'testflight','project':'example','arguments':{}}]}),external_requests=1)
@@ -477,10 +479,10 @@ class TestFlightSemanticTests(unittest.TestCase):
 
     def test_earlier_failure_never_starts_testflight(self):
         handlers=self.handlers();handlers['test'].return_value=gate.HandlerOutcome(1)
-        code,data,handlers=self.invoke('do','Build/test/commit/TestFlight Example',candidate=self.candidate(),confirm=True,handlers=handlers)
-        self.assertEqual(code,1);self.assertEqual(data['failed_step'],2)
+        code,out,handlers=self.invoke('do','Build/test/commit/TestFlight Example',candidate=self.candidate(),json_mode=False,handlers=handlers)
+        self.assertEqual(code,1);self.assertEqual(out.count('Continue? [y/N]:'),1)
+        self.assertIn('2. test    FAIL',out);self.assertIn('4. testflight SKIPPED',out)
         handlers['testflight'].assert_not_called();handlers['commit'].assert_not_called()
-        self.assertEqual(data['steps'][3]['status'],'not_started')
 
     def test_public_release_is_vetoed_even_if_provider_returns_safe_prefix(self):
         for text in ('Publish Example to the App Store','Release Example publicly','Upload Example to TestFlight and publish it','Distribute Sample','Submit Example for App Review'):
@@ -498,7 +500,7 @@ class TestFlightSemanticTests(unittest.TestCase):
             self.assertFalse(any(h.called for h in handlers.values()))
 
     def test_historical_provider_inputs_preserved(self):
-        import planner_provider_v2 as previous
+        previous = planner_provider.COMMIT_V2
         import planner_evaluation
         import commit_evaluation
         projects=natta.load_registry(self.registry)

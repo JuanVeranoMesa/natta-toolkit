@@ -6,10 +6,11 @@ from pathlib import Path
 
 import commit_evaluation as evaluation
 import natta
-import planner_provider_v3 as planner
+import planner_provider
 import router_codex as router
 
 ROOT = Path(__file__).resolve().parent
+planner = planner_provider.TESTFLIGHT_V1
 
 
 def sources(mode, projects):
@@ -38,7 +39,7 @@ def controls(mode, projects, suite='baseline'):
 def run(mode, authorization, output, registry=natta.DEFAULT_REGISTRY):
     return evaluation.run(mode, authorization, output, registry, control_loader=controls,
                           planner_mode=planner, routing_ids=router.TOOLKIT_IDS, additional_source_files=(
-                              'testflight.py', 'testflight_semantics.py', 'planner_provider_v3.py',
+                              'testflight.py', 'testflight_semantics.py',
                               'testflight_evaluation.py', 'compound_execution.py', 'semantic_execution.py'))
 
 

@@ -115,7 +115,9 @@ class ProtectedSnapshotTests(unittest.TestCase):
         before=self.capture();(self.repo/'cache').mkdir();(self.repo/'cache/output').write_text('cache')
         self.assertTrue(self.compare(before).passed)
         legacy=execution.snapshot(self.repo)
-        self.assertIn(b'cache/output',legacy['files'])
+        # Both scopes exclude ignored build/cache artifacts (NTT-006).
+        self.assertNotIn(b'cache/output',legacy['files'])
+        self.assertEqual(legacy,execution.snapshot(self.repo))
 
 
 class RuntimeIntegrationTests(unittest.TestCase):
@@ -228,7 +230,8 @@ class RuntimeIntegrationTests(unittest.TestCase):
             self.assertTrue(natta.handler_bindings()[cap].keywords['protected_state'])
         with patch.object(effects,'compare',return_value=None), \
              patch.object(effects,'capture',return_value=self.evidence()):
-            result=self.dispatch(self.route(),True)
+            result=gate.dispatch(self.route(),natta.make_parser(),lambda:natta.load_registry(self.registry),
+                frozenset(natta.capabilities.capability_ids()),self.bindings(),confirm=True,expected_capability='build')
         self.assertEqual(result.status,'verification_unavailable')
         self.assertTrue(result.execution_started)
         self.assertTrue(result.handler_succeeded)

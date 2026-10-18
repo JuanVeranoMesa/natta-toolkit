@@ -159,7 +159,7 @@ limits and nonzero provider exit are provider_failure without leaking stderr.
 No reasoning, confidence, raw prompts, requests, provider JSONL or provider
 arguments enter this result. It grants no execution authority and `natta route` never
 passes it to a dispatcher. The execute command constructs its own internal route. Project and bounded verify level are resolved deterministically after capability
-validation, never supplied by Luna. Internally arguments and missing values use
+validation, never supplied by the semantic model. Internally arguments and missing values use
 immutable tuples; JSON exports a fresh object/array. Matched incomplete routes
 still exit zero: consumers must inspect arguments_resolved and resolution_error.
 Missing level yields missing_arguments=["level"], arguments={}, error=null.
@@ -202,13 +202,17 @@ and cannot consume provider/user-supplied effects. See [policy details](EXECUTIO
 
 ## Separate semantic ExecutionResult
 
-`natta execute [--json] [--confirm] REQUEST` returns an immutable ExecutionResult,
+`natta execute [--json] [--confirm] [--expect CAPABILITY] REQUEST` returns an immutable ExecutionResult,
 not a mutated RouteResult. See [EXECUTION_GATE.md](EXECUTION_GATE.md) for the complete
 fields/status/exit contract. executed aliases execution_started: handler failures
 remain started=true, succeeded=false. Before invocation succeeded is null and result
 is null. JSON contains only bounded presentation output and existing structured
 workflow checks. Route keeps executed=false permanently. Explicit authorization
-uses terminal approval or a dedicated CLI flag for one invocation, never natural-language data.
+uses terminal approval or `--confirm --expect CAPABILITY` for one invocation, never
+natural-language data. `expected_capability` reports the `--expect` value (null
+when absent); `expected_capability_required` (invalid_request, no provider call)
+and `expected_capability_mismatch` (execution_denied, after the one routing call)
+are bounded preauthorization errors.
 
 Runtime effect verification now wraps semantic execute with protected project/Git
 before/after evidence, compared against authoritative policy. Handler success is
@@ -218,7 +222,7 @@ external-service absence is provided. See [observable scope and contract](RUNTIM
 
 Semantic status/context/diff use a current host-validated macOS inspection
 sandbox and mandatory runtime verification. Build/test/verify require explicit
-authorization (terminal approval or --confirm) and mandatory protected-state snapshots, but no native confinement.
+authorization (terminal approval or --confirm --expect) and mandatory protected-state snapshots, but no native confinement.
 Xcode sandbox-exec research is deliberately deferred, not a production dependency.
 Policy-denied effects are distinct from actively enforced effects: workflow
 network, external services and unrelated filesystem writes are residual risks.
@@ -264,8 +268,10 @@ Historical provider domains remain separate; public definitions have sanitized
 project names/control hashes and private results are excluded. See [COMMIT.md](COMMIT.md).
 
 Interactive semantic authorization is terminal-only and continues the same frozen
-resolved action without a second Luna call. --json/non-TTY never prompt; --confirm
-preauthorizes one invocation. Direct commands stay noninteractive. See
+resolved action without a second semantic-model call. --json/non-TTY never prompt.
+`execute --confirm` preauthorizes one invocation only together with `--expect
+CAPABILITY`, and only when the route selects exactly that capability; `do --confirm`
+cannot preauthorize a plan with explicit steps. Direct commands stay noninteractive. See
 [authorization contract](EXECUTION_GATE.md#interactive-authorization).
 
 ## TestFlight extension
@@ -291,9 +297,14 @@ Malformed CLI arguments requested with --json produce status=invalid_request,
 error=invalid_arguments, executed=false and exit 2. Human argparse diagnostics remain.
 
 Doctor --json reports status=passed/failed, core_ready, error and Check-shaped
-checks with name/status/optional. Mandatory failures determine exit 1; otherwise
-exit 0. Missing Codex, semantic readiness, local models, native confinement and
-TestFlight prerequisites remain visible optional unavailable checks, not passed
-checks and not proof those capabilities work. Human output labels mandatory FAIL,
-optional UNAVAILABLE and the core readiness summary. Invalid registry/configuration
-produces failed/core_ready=false/checks=[]/cli_configuration_invalid and exit 1.
+checks with name/status/optional plus group (`core`, `provider` or `integration`).
+Only core rows are mandatory (optional=false) and determine core_ready; core
+failures exit 1, otherwise exit 0. Missing Codex, semantic readiness, local models,
+the launcher on PATH, native confinement and TestFlight prerequisites remain
+visible optional unavailable checks, not passed checks and not proof those
+capabilities work. Human output prints Core, Provider and model (optional) and
+Platform and integration (optional) sections, labels mandatory FAIL and optional
+UNAVAILABLE, and ends with the core readiness summary. Doctor rows are local
+diagnostics and may name local paths. An invalid or unreadable registry
+(including an unknown adapter type) produces a failed core `Registry: ...` row,
+core_ready=false, error=registry_invalid, no project rows and exit 1.

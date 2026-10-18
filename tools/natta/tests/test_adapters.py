@@ -49,11 +49,14 @@ Ineligible destinations:
 
     def test_resolution_and_missing_execution(self):
         self.assertIsInstance(adapters.resolve(self.project), adapters.GenericGit)
-        for kind in ('unknown', ''):
-            self.write_registry(kind=kind or 'ios-xcode')
-            p = natta.load_registry(self.registry)[0]
-            with self.assertRaises(natta.NattaError):
-                adapters.resolve(p).plan('build', None, self.root)
+        # An unknown adapter type now fails at registry load (NTT-011).
+        self.write_registry(kind='unknown')
+        with self.assertRaisesRegex(natta.NattaError, "unsupported adapter type 'unknown'"):
+            natta.load_registry(self.registry)
+        self.write_registry(kind='ios-xcode')
+        p = natta.load_registry(self.registry)[0]
+        with self.assertRaises(natta.NattaError):
+            adapters.resolve(p).plan('build', None, self.root)
 
     def test_malformed_execution(self):
         bad = [dict(scheme=''), dict(configuration=2), dict(project='../Bad.xcodeproj'),
@@ -217,20 +220,23 @@ Ineligible destinations:
 
     def test_unsupported_doctor_and_missing_xcode(self):
         self.write_registry(kind='unknown')
-        self.assertIn('Unsupported adapter: unknown', self.invoke('doctor')[1])
+        self.assertIn("FAIL  Registry: Project app: unsupported adapter type 'unknown'", self.invoke('doctor')[1])
         adapter = self.configure()
         with patch('adapters.shutil.which', return_value=None):
             self.assertEqual(adapter.diagnose()[0], (False, 'xcodebuild available'))
 
-    def test_integrity_detects_ignored_untracked_and_head_changes(self):
+    def test_integrity_detects_untracked_and_head_changes_but_not_ignored(self):
         (self.repo / '.gitignore').write_text('ignored\n')
         (self.repo / 'file').write_text('before')
         self.commit()
         before = execution.snapshot(self.repo)
+        # Ignored outputs are outside the legacy integrity scope (NTT-006).
         (self.repo / 'ignored').write_text('generated')
-        with self.assertRaisesRegex(natta.NattaError, 'ignored'):
+        execution.assert_integrity(self.repo, before, 'fixture')
+        (self.repo / 'untracked').write_text('new')
+        with self.assertRaisesRegex(natta.NattaError, 'untracked'):
             execution.assert_integrity(self.repo, before, 'fixture')
-        (self.repo / 'ignored').unlink()
+        (self.repo / 'untracked').unlink()
         self.assertEqual(execution.snapshot(self.repo), before)
         # An empty commit leaves contents/index/status unchanged but changes HEAD.
         self.run_git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--allow-empty', '-m', 'Fixture head')

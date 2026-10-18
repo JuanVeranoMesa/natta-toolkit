@@ -1,4 +1,9 @@
-"""Separate Phase 8A Codex/Luna mode; shared isolation/JSONL boundary, no dispatch."""
+"""Bounded planner provider revisions; shared isolation/JSONL boundary, no dispatch.
+
+Module-level names are the frozen phase8a-v1 revision. Later revisions are
+Revision entries below; a new planner domain adds one entry (with its own frozen
+evaluation corpus/controls), not a new module.
+"""
 from dataclasses import dataclass
 import json
 import os
@@ -68,8 +73,7 @@ def output_schema(projects, allowed=ALLOWED):
 
 
 def contents(projects, *, allowed=ALLOWED, version=VERSION, policy=POLICY):
-    descriptions = (shared.toolkit_definitions() if 'testflight' in allowed else
-                    shared.production_definitions() if 'commit' in allowed else shared.definitions())['concise']
+    descriptions = shared.descriptions(allowed)['concise']
     encode = lambda obj: json.dumps(obj,ensure_ascii=False,indent=2)+'\n'
     return {'AGENTS.md':policy,'capabilities.json':encode({'planner_version':version,
         'max_steps':MAX_STEPS,'capabilities':[{'id':c,'description':descriptions[c]} for c in allowed],
@@ -130,3 +134,57 @@ def propose(goal,projects, *, settings=None):
     try:shared.validate_workspace(workspace_path(),expected)
     except (OSError,ValueError):text,error=None,'boundary_violation'
     return Reply(text,error,1,time.perf_counter()-started)
+
+
+class Revision:
+    """One frozen planner domain. Version, allowed IDs and policy text are hashed
+    by that revision's evaluation controls; never edit an existing revision."""
+    MODEL = MODEL
+    MAX_STEPS = MAX_STEPS
+    PROMPT = PROMPT
+    Reply = Reply
+    shared = shared
+
+    def __init__(self, version, allowed, policy):
+        self.VERSION, self.ALLOWED, self.POLICY = version, tuple(allowed), policy
+        self.SETTINGS = dict(allowed=self.ALLOWED, version=version, policy=policy)
+
+    @staticmethod
+    def workspace_path():
+        return workspace_path()
+
+    @staticmethod
+    def project_metadata(projects):
+        return project_metadata(projects)
+
+    def output_schema(self, projects):
+        return output_schema(projects, self.ALLOWED)
+
+    def contents(self, projects):
+        return contents(projects, **self.SETTINGS)
+
+    def propose(self, goal, projects):
+        return propose(goal, projects, settings=self.SETTINGS)
+
+
+# Focused commit planning extension of the phase8a transport.
+COMMIT_V2 = Revision('phase8a-commit-v2', (*ALLOWED, 'commit'), POLICY.replace('phase8a-v1','phase8a-commit-v2').replace(
+    'unsupported or mutating,','unsupported or mutating outside the supplied commit capability,') + '''
+Commit is one local commit of all changes using a deterministic default message.
+Custom commit messages, Git flags, staging paths, amend, push, fetch, pull, branch
+changes and arbitrary Git commands are unsupported. Reject the WHOLE goal if it
+contains one, even alongside valid build/test/commit steps. Never return a prefix.
+''')
+# Additive TestFlight planner controls; preserves historical v1/v2 inputs.
+TESTFLIGHT_V1 = Revision('testflight-planner-v1', (*COMMIT_V2.ALLOWED, 'testflight'), COMMIT_V2.POLICY + '''
+TestFlight means a signed Release archive and upload to App Store Connect's beta
+build pipeline only. It never submits App Review, publishes publicly, adds testers,
+changes release settings or bumps a build number. Public App Store release,
+publish, distribute and upload-plus-publication goals are unsupported: reject the
+WHOLE goal with no_match, never a TestFlight-only prefix. Upload/beta-build delivery
+phrasing may select testflight; build then upload is build/testflight. Explicit
+build/test/commit/upload is four steps. Keep max4 and exact project/argument rules.
+''')
+# Production planning revision. Its ALLOWED set must equal the catalog's
+# planner-eligible capabilities (checked by capability_integration.py).
+CURRENT = TESTFLIGHT_V1

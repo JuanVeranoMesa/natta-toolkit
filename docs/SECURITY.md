@@ -5,21 +5,28 @@ semantic selector/planner proposes bounded untrusted data; strict whole-response
 JSON and CLI event validation reject unknown fields, duplicate keys, malformed
 outputs, action events and unknown choices. Model output has no supported
 arbitrary-command execution path. Restricted supplied context excludes repository
-contents and authentication material. Planning supplies bounded project identity.
+contents and authentication material. Planning supplies bounded project identity;
+each planned step's project and verify level must match what the goal itself names,
+resolved locally, or the whole plan is rejected without a second model call.
 
 Before semantic dispatch, Natta validates CLI/catalog/parameter/binding/policy
 parity, resolves project/arguments deterministically, revalidates identity and
 authorization, and applies the existing protection requirements. Selection and
 policy eligibility do not authorize execution. Explicit policies require terminal
-approval or invocation-local `--confirm`; JSON/non-TTY cannot prompt. Compound
-execution freezes at most four linear steps, authorizes the whole plan before
-execution, pins targets and fails fast. No retries, replanning or rollback.
+approval after routing, or invocation-local `--confirm --expect CAPABILITY` that
+names the action; a route selecting any other capability fails before approval or
+execution. JSON/non-TTY cannot prompt. Compound execution freezes at most four
+linear steps, authorizes the whole displayed plan before execution, pins targets
+and fails fast; `do --confirm` cannot preauthorize a plan with explicit steps,
+because the model chose those steps after the flag was given. No retries,
+replanning or rollback.
 
 Semantic inspection (`status/context/diff`) requires exact host-local validation
 of the macOS inspection backend. The deny-default sandbox profile allows broad
 reads/processes but denies network and filesystem writes outside its owned
 runtime (with `/dev/null` allowed). It is write/network confinement, not read
-confidentiality. The public compatibility list starts empty and ships no receipt.
+confidentiality. The public compatibility list names only audited public source
+fingerprints and ships no host receipt.
 Semantic `projects` and `doctor` fail closed because they have no validated mode.
 Direct commands remain available and do not all run inside this sandbox.
 
@@ -39,6 +46,14 @@ with `git check-attr` and refuse
 to a tracked or non-ignored untracked file; Natta never executes that filter. A
 configured but unused filter, such as a global Git LFS installation in a
 repository without `filter=lfs` attributes, does not affect availability.
+Natta-owned Git inspection runs with `core.fsmonitor=false`, so a repository-configured
+fsmonitor hook is never executed; the repository's configuration is not changed.
+
+The direct build/test/verify integrity snapshot covers tracked files and untracked
+files that are not ignored (by `.gitignore`, `info/exclude` or `core.excludesFile`),
+hashed in streamed chunks, plus Git HEAD/index/status. Ignored build outputs,
+caches and other ignored files are outside it: Natta does not verify every byte
+under the repository directory.
 Protected/workflow verification does not currently support repositories
 containing Git submodules: any submodule (gitlink) in the index is refused with
 `submodule_unsupported` (`submodule_commit_unsupported` for commit), read from the

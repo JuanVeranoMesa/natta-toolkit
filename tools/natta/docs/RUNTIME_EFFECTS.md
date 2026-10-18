@@ -4,7 +4,7 @@
 
 # Protected observable runtime effects
 
-The production execute chain is Luna selection → local resolution → local policy →
+The production execute chain is semantic-model selection → local resolution → local policy →
 authorization → protected BEFORE capture → bound handler → protected AFTER capture
 → policy-driven effect comparison → final result. Route never invokes the verifier.
 A policy declaration is not runtime proof. This layer supplies evidence only for
@@ -12,10 +12,17 @@ its explicit local Git/project scope, not all declared effects or tool behavior.
 
 ## Shared snapshot infrastructure
 
-`execution.snapshot(cwd)` retains its original behavior and dictionary contract:
-SHA256 contents/symlink targets of tracked, untracked and ignored paths, porcelain
-status, HEAD/current commit and raw index bytes. Existing direct workflows retain
-those checks. The opt-in `snapshot(cwd, protected=True, baseline=...)` returns an
+`execution.snapshot(cwd)` is the direct build/test/verify integrity snapshot. Its
+scope is the meaningful repository boundary: SHA256 contents/symlink targets of
+tracked files and of untracked files that are not ignored (`git ls-files --cached
+--others --exclude-standard`), porcelain status, HEAD/current commit and an index
+digest. Ignored build outputs, caches and other ignored files are outside it.
+File and index contents are hashed in streamed 64 KiB chunks, so peak memory does
+not grow with file size and no large tracked file is skipped. Its Git reads run
+with `core.fsmonitor=false` and `core.untrackedCache=false`, so a
+repository-configured fsmonitor hook never runs, and applied clean/process filters
+and submodules are refused before `git status`. Direct workflows compare it before
+discovery, after each check and at the end. The opt-in `snapshot(cwd, protected=True, baseline=...)` returns an
 immutable ProtectedSnapshot for semantic execution; it does not hash the entire
 repository or read arbitrary untracked file contents.
 
@@ -122,7 +129,7 @@ violations or verification unavailability even when the handler returned zero.
 Executed still aliases execution_started. Exceptions still attempt AFTER capture.
 Interrupt/forced process termination may prevent a final envelope; no success is
 fabricated. Authorization-required/no_match/unresolved/provider-error paths take
-no runtime snapshots. Exactly one Luna classification remains; verifier makes zero
+no runtime snapshots. Exactly one semantic-model classification remains; verifier makes zero
 provider calls. Doctor checks helper/effect-map integrity without snapshots, handler
 invocation or provider requests.
 

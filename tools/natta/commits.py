@@ -45,13 +45,18 @@ def message_for(project, message=None):
 
 def git(project, *args):
     # Do not inherit GIT_DIR, GIT_INDEX_FILE, GIT_WORK_TREE, injected config or author
-    # overrides. Identity is supplied by ordinary Git configuration, never Luna.
+    # overrides. Identity is supplied by ordinary Git configuration, never the model.
     env=execution.git_environment()
     argv=('git','--no-optional-locks','--no-pager','-c','core.hooksPath=/dev/null',
           '-c','commit.gpgSign=false','-c','core.fsmonitor=false',
           '-c','core.untrackedCache=false','-c','core.splitIndex=false',
           '-c','maintenance.auto=false','-c','gc.auto=0','-c','core.quotePath=true','-C',str(project.path),*args)
     return subprocess.run(argv,cwd=project.path,env=env,capture_output=True,timeout=60)
+
+
+def gitlinks(project):
+    """Index-only gitlink (submodule) check; never refreshes or recurses."""
+    return any(entry.startswith(b'160000 ') for entry in read(project,'ls-files','--stage','-z').split(b'\0'))
 
 
 def read(project,*args, optional=False):
@@ -64,7 +69,7 @@ def read(project,*args, optional=False):
 
 def create(project,message=None):
     """Dirty files are input. On failure leave index/commit state; never roll back."""
-    before=None;started=commit_started=False;head=None;created=False;actual_message=None
+    before=None;started=commit_started=staged_submodule=False;head=None;created=False;actual_message=None
     paths=();count=0;detail=None;verification=runtime_effects.VerificationResult()
     try:
         requested=message_for(project,message)
@@ -75,13 +80,17 @@ def create(project,message=None):
         # Merge/rebase/cherry-pick state and unresolved entries require direct Git UX.
         for marker in ('MERGE_HEAD','CHERRY_PICK_HEAD','REVERT_HEAD','rebase-merge','rebase-apply','sequencer'):
             if (Path(before.git_directory)/marker).exists():raise ValueError('git_operation_in_progress')
-        if any(entry.startswith(b'160000 ') for entry in read(project,'ls-files','--stage','-z').split(b'\0')):
-            raise ValueError('submodule_commit_unsupported')
+        if gitlinks(project):raise ValueError('submodule_commit_unsupported')
         if read(project,'ls-files','--unmerged','-z'):raise ValueError('unmerged_index')
         state=read(project,'status','--porcelain=v1','-z','--untracked-files=all')
         if not state:return CommitResult('no_changes',project.alias,exit_code=0)
         started=True
         read(project,'add','-A','--','.')
+        # git add -A stages an untracked embedded repository as a gitlink. Refuse
+        # before git commit; the staged index is left as-is (no rollback).
+        if gitlinks(project):
+            staged_submodule=True
+            raise ValueError('submodule_commit_unsupported')
         # No empty commit (e.g. dirty submodule with no changed gitlink).
         diff=git(project,'diff','--cached','--quiet','--exit-code')
         if diff.returncode==0:
@@ -115,7 +124,11 @@ def create(project,message=None):
             exit_code=0,execution_started=True,git_commit_started=True,effect_verification=verification)
     except (ValueError,OSError,execution.NattaError,subprocess.SubprocessError,UnicodeError) as exc:
         # Git may have mutated before failing; collect evidence even on failure.
-        if before is not None and started:
+        if staged_submodule:
+            # Protected evidence refuses any gitlink, so it cannot be captured
+            # now. No commit command ran; report the left-staged index.
+            verification=runtime_effects.unavailable('submodule_unsupported',committing=True)
+        elif before is not None and started:
             try:
                 after=runtime_effects.capture_commit(project,before)
                 verification=runtime_effects.compare(before,after,ALLOWED)
@@ -123,7 +136,10 @@ def create(project,message=None):
                     created=True;head=after.commit.decode('ascii')
                     actual_message=read(project,'show','-s','--format=%B','HEAD').decode('utf-8').rstrip('\n')
             except Exception:verification=runtime_effects.unavailable('post_execution_verification_failed',committing=True)
-        if isinstance(exc,execution.SubmoduleUnsupported):error,detail='submodule_commit_unsupported',str(exc)
+        if staged_submodule:
+            error,detail='submodule_commit_unsupported',('git add -A staged a nested Git repository as a submodule; '
+                'no commit was created. The index was left staged; Natta does not roll back.')
+        elif isinstance(exc,execution.SubmoduleUnsupported):error,detail='submodule_commit_unsupported',str(exc)
         elif isinstance(exc,execution.ExternalFilterConfigured):
             error,detail=exc.code,str(exc)
         else:error=str(exc) if isinstance(exc,ValueError) else 'git_operation_failed'

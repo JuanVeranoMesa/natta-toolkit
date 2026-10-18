@@ -34,10 +34,10 @@ class RouteResult:
 
 
 def select(request, *, decision_factory=None, capability_ids=None):
-    """One explicit Luna decision; no registry, project, argument or dispatch path."""
+    """One explicit semantic-model decision; no registry, project, argument or dispatch path."""
     if not isinstance(request, str) or not request.strip():
         return RouteResult('invalid_request', None, 'empty_request')
-    ids = provider.TOOLKIT_IDS if capability_ids is None else capability_ids
+    ids = provider.current_ids() if capability_ids is None else capability_ids
     try:
         provider.generate(provider.workspace_path(), 'concise', ids)
     except (OSError, ValueError):
@@ -100,7 +100,7 @@ def doctor_checks():
     """Read-only local readiness, not authentication/network/model availability."""
     checks = []
     try:
-        expected = provider.workspace_contents('concise', provider.TOOLKIT_IDS)
+        expected = provider.workspace_contents('concise', provider.current_ids())
         checks.append((True, 'Semantic router: gpt-6-luna / concise / canonical / no_match; definitions valid'))
     except (OSError, ValueError):
         return [(False, 'Semantic router definitions invalid')]

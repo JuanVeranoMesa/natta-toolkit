@@ -11,18 +11,21 @@ predictable human command. `natta do` is optional orchestration; `build example`
 
 ```sh
 natta do "Check what changed in Example, build it, then test it"
-natta do --confirm "Build Example, then test it"
-natta do --json "Build Example, then test it"
+natta do --json "Show Example status, then show what changed in Example"
+natta do --json "Build Example, then test it"   # authorization_required
 ```
 
 ## Architecture and frozen authorization unit
 
-`compound_execution.run` calls the current planner-v3 once, yielding the existing
+`compound_execution.run` calls the current planner revision (`planner_provider.CURRENT`) once, yielding the existing
 frozen PlanResult/Step objects. The allowed domain remains status/context/diff/
 build/test/verify/commit/testflight, with one to four linear ordered steps. It locally checks
 the complete plan with the existing planner validator and shared semantic
 `validate_target` preflight. No snapshots or handlers run before authorization.
 The existing policy computes automatic authorization only if every step is automatic.
+Each step's project and verify level must match what the goal itself names
+(see [planning](PLANNING.md#deterministic-project-and-level-reconciliation)); the
+compound revalidation repeats that check without a model.
 
 Human output displays the entire canonical plan (display names and exact verify
 levels). Any explicit step requires one whole-plan approval before step 1,
@@ -31,10 +34,18 @@ accepts only y/yes, case-insensitively. Immediately before the prompt, a local
 summary names every frozen step and its arguments and states that y authorizes
 execution of that displayed plan. Commit steps additionally state staging all
 current changes, ONE local commit containing all current changes in the selected
-project, and no push. JSON and non-TTY never prompt. Without
---confirm they return authorization_required and start nothing. Decline returns
-authorization_declined and starts nothing. --confirm preauthorizes this invocation's
-validated plan; wording never grants authorization.
+project, and no push. JSON and non-TTY never prompt; for a plan with any explicit
+step they return authorization_required and start nothing. Decline returns
+authorization_declined and starts nothing. Wording never grants authorization.
+
+`--confirm` is given before the model proposes any step, so it cannot name the
+explicit actions it would cover. A plan containing any explicit step is therefore
+refused under `--confirm` with authorization_required /
+`compound_preauthorization_unsupported`, after the one planner call and before any
+prompt, snapshot or handler; rerun without `--confirm` in a terminal to review and
+approve the displayed plan. An all-automatic plan needs no authorization, so
+`--confirm` grants nothing there. Single explicit actions can be preauthorized
+noninteractively with `execute --confirm --expect CAPABILITY` or run directly.
 
 After approval the entire unit is revalidated before step 1, then each exact typed
 route uses the existing `semantic_execution.dispatch` with authorization satisfied
@@ -60,7 +71,8 @@ all subsequent steps. A failed build/test cannot start a later commit. No retrie
 rollback or partial-plan authorization exist. A commit created before a later
 failure remains in place and its existing result reports the mutation truthfully.
 
-The public inspection compatibility manifest starts empty. OS, interpreter,
+The public inspection compatibility manifest lists only exact audited source
+fingerprints, never host records. OS, interpreter,
 profile and source identity still have to match a successful host-local validation
 record; missing/stale validation stops execution.
 
@@ -84,7 +96,7 @@ PASS/FAIL/SKIPPED rows, commit hash when present and final status.
 
 ## Local acceptance sequence
 
-Run on the host; these are real Luna requests and B/C can run real workflows.
+Run on the host; these are real semantic-model requests and B/C can run real workflows.
 Check each displayed plan before answering. Start without commit:
 
 ```sh

@@ -1,0 +1,33 @@
+# Regression suite on the documented minimum and current Python. Mocked providers
+# and Apple commands only: no semantic provider, Codex, Xcode workflow, TestFlight
+# or other network-dependent product behavior runs here.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Whitespace (whole committed tree)
+        # Compares the empty tree with HEAD, so a fresh checkout is fully checked.
+        run: git diff --check "$(git hash-object -t tree /dev/null)" HEAD
+      - name: Help
+        working-directory: tools/natta
+        run: python -B natta.py --help
+      - name: Unit tests
+        working-directory: tools/natta
+        run: python -B -m unittest discover -s tests -v

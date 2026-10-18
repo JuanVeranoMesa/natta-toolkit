@@ -1,4 +1,25 @@
 #!/bin/sh
 # Resolve the checkout from this executable, independent of shell configuration.
-NATTA_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || exit 1
-exec python3 -B "$NATTA_BIN_DIR/../tools/natta/natta.py" "$@"
+# Follow symlinks (for example ~/.local/bin/natta -> <checkout>/bin/natta) with
+# plain readlink, so no platform-specific realpath/readlink -f is required.
+NATTA_SELF=$0
+NATTA_HOPS=0
+while [ -L "$NATTA_SELF" ]; do
+    NATTA_HOPS=$((NATTA_HOPS + 1))
+    if [ "$NATTA_HOPS" -gt 40 ]; then
+        echo "natta: launcher symlink chain too long: $0" >&2
+        exit 1
+    fi
+    NATTA_TARGET=$(readlink -- "$NATTA_SELF") || exit 1
+    case $NATTA_TARGET in
+        /*) NATTA_SELF=$NATTA_TARGET ;;
+        *) NATTA_SELF=$(dirname -- "$NATTA_SELF")/$NATTA_TARGET ;;
+    esac
+done
+NATTA_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$NATTA_SELF")" && pwd -P) || exit 1
+NATTA_SOURCE=$NATTA_BIN_DIR/../tools/natta/natta.py
+if [ ! -f "$NATTA_SOURCE" ]; then
+    echo "natta: cannot find the toolkit checkout from launcher $0 (expected $NATTA_SOURCE)" >&2
+    exit 1
+fi
+exec python3 -B "$NATTA_SOURCE" "$@"

@@ -64,19 +64,17 @@ type = "{kind}"
 
     def test_direct_dispatch_covers_exactly_the_parser_commands(self):
         commands = next(a for a in natta.make_parser()._actions if isinstance(a, argparse._SubParsersAction))
-        self.assertEqual(set(commands.choices), natta.DIRECT_DISPATCH)
+        self.assertEqual(set(commands.choices), set(natta.DIRECT_HANDLERS))
+        self.assertEqual(set(natta.DIRECT_HANDLERS), natta.capabilities.direct_ids())
 
     def test_unhandled_direct_command_fails_closed_without_any_handler(self):
         handlers = ("handle_inspection", "handle_workflow", "handle_projects", "handle_doctor",
                     "launch_codex", "orientation", "git_state", "git", "prepare_route")
-        cases = (("phantom", ("phantom", "app"), True, natta.DIRECT_DISPATCH),
-                 ("phantom", ("phantom",), False, natta.DIRECT_DISPATCH),
-                 # Listed as dispatchable but no branch: still never falls through to status.
-                 ("phantom", ("phantom", "app"), True, natta.DIRECT_DISPATCH | {"phantom"}))
-        for command, argv, project, dispatch in cases:
-            with self.subTest(argv=argv, listed=command in dispatch), contextlib.ExitStack() as stack:
+        cases = (("phantom", ("phantom", "app"), True),
+                 ("phantom", ("phantom",), False))
+        for command, argv, project in cases:
+            with self.subTest(argv=argv), contextlib.ExitStack() as stack:
                 stack.enter_context(patch.object(natta, "make_parser", self.parser_with(command, project=project)))
-                stack.enter_context(patch.object(natta, "DIRECT_DISPATCH", dispatch))
                 mocks = [stack.enter_context(patch.object(natta, name, side_effect=AssertionError(name))) for name in handlers]
                 for module, name in ((natta.commits, "create"), (natta.testflight, "execute"),
                                      (natta.semantic_execution, "dispatch"), (natta.routing, "select")):
@@ -186,7 +184,7 @@ type = "{kind}"
             code, out, _ = self.invoke("doctor")
             self.assertEqual(code, 1)
             self.assertIn("FAIL  git available", out)
-            self.assertIn("launcher on PATH: missing", out)
+            self.assertIn("UNAVAILABLE  Launcher on PATH resolves to this checkout: missing (optional)", out)
 
     def test_context_references_not_document_contents(self):
         (self.repo / "AGENTS.md").write_text("Secret fixture content not for rendering")

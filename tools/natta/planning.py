@@ -2,9 +2,10 @@
 from dataclasses import dataclass, field, replace
 from enum import Enum
 import json
+import capabilities
 import confinement
 import parameters
-import planner_provider_v3 as planner_provider
+import planner_provider
 from testflight_semantics import public_release_requested
 import policy
 import routing
@@ -21,6 +22,10 @@ class Reason(str,Enum):
     FORBIDDEN = 'forbidden_step'
     MISSING_HANDLER = 'missing_handler'
     CONFIGURATION = 'planner_configuration_invalid'
+    UNRESOLVED_PROJECT = 'unresolved_project'
+    PROJECT_MISMATCH = 'project_mismatch'
+    MISSING_LEVEL = 'missing_level'
+    LEVEL_MISMATCH = 'level_mismatch'
 
 
 class InvalidPlan(ValueError):
@@ -59,7 +64,7 @@ class PlanResult:
     external_requests: int = 0
     inference_seconds: float | None = None
     provider: str = field(default=planner_provider.MODEL,init=False)
-    planner_version: str = planner_provider.VERSION
+    planner_version: str = planner_provider.CURRENT.VERSION
     experimental: bool = field(default=True,init=False)
     executed: bool = field(default=False,init=False)
 
@@ -98,8 +103,30 @@ def canonical_project(reference,projects):
     return next(iter(matches))
 
 
-def validate(candidate,parser,projects,bindings, *, provider_mode=planner_provider):
-    """Atomic acceptance; on any error return no steps or partial summaries."""
+def goal_evidence(goal,projects):
+    """Projects and verify levels the user's own goal names, resolved locally."""
+    return frozenset(parameters.project_matches(goal,projects)),tuple(parameters.explicit_levels(goal))
+
+
+def reconcile(project,args,schema,evidence):
+    """The planner structures steps; it never picks a project or level the goal did not state."""
+    named,levels=evidence
+    if not named:raise InvalidPlan(Reason.UNRESOLVED_PROJECT)
+    if project not in named:raise InvalidPlan(Reason.PROJECT_MISMATCH)
+    if schema.level_choices:
+        if not levels:raise InvalidPlan(Reason.MISSING_LEVEL)
+        if any(token not in {str(v) for v in schema.level_choices} for token in levels):
+            raise InvalidPlan(Reason.INVALID_ARGUMENT)
+        if str(args['level']) not in levels:raise InvalidPlan(Reason.LEVEL_MISMATCH)
+
+
+def validate(candidate,parser,projects,bindings, *, provider_mode=None, goal=None):
+    """Atomic acceptance; on any error return no steps or partial summaries.
+
+    With goal, every step's project and verify level must match what the goal
+    deterministically names; a mismatch invalidates the plan (no replan).
+    """
+    provider_mode=planner_provider.CURRENT if provider_mode is None else provider_mode
     if (not isinstance(candidate,dict) or set(candidate)!={'status','steps'}
             or candidate['status'] not in ('planned','no_match') or not isinstance(candidate['steps'],list)):
         return PlanResult('invalid_plan',error=Reason.MALFORMED.value)
@@ -108,9 +135,10 @@ def validate(candidate,parser,projects,bindings, *, provider_mode=planner_provid
     if candidate['status']=='no_match':
         return PlanResult('no_match') if not raw else PlanResult('invalid_plan',error=Reason.MALFORMED.value)
     if not raw:return PlanResult('invalid_plan',error=Reason.MALFORMED.value)
-    ids=planner_provider.shared.authoritative_ids()-{'codex','route'}
+    ids=frozenset(capabilities.capability_ids())
     try:policy.validate_catalog(ids)
     except (TypeError,ValueError):return PlanResult('invalid_plan',error=Reason.CONFIGURATION.value)
+    evidence=None if goal is None else goal_evidence(goal,projects)
     steps=[]
     for index,item in enumerate(raw,1):
         try:
@@ -128,6 +156,7 @@ def validate(candidate,parser,projects,bindings, *, provider_mode=planner_provid
                 if set(args)!={'level'} or type(args['level']) is not int or args['level'] not in schema.level_choices:
                     raise InvalidPlan(Reason.INVALID_ARGUMENT)
             elif args:raise InvalidPlan(Reason.INVALID_ARGUMENT)
+            if evidence is not None:reconcile(project,args,schema,evidence)
             arguments=tuple(sorted(args.items()))
             route=routing.RouteResult('matched',cap,project=project,arguments=arguments,arguments_resolved=True)
             decision=policy.evaluate(route,ids,schema,projects)
@@ -137,12 +166,20 @@ def validate(candidate,parser,projects,bindings, *, provider_mode=planner_provid
             steps.append(Step(index,cap,project,arguments,decision,cap not in confinement.UNCONFINED_TARGETS,True))
         except InvalidPlan as exc:return PlanResult('invalid_plan',error=exc.reason.value,invalid_step=index)
         except (TypeError,ValueError,KeyError):return PlanResult('invalid_plan',error=Reason.CONFIGURATION.value,invalid_step=index)
+    if evidence is not None:
+        named,levels=evidence
+        # Every named project and stated level is accounted for; otherwise the
+        # planner chose among alternatives the goal left open.
+        if {s.project for s in steps}!=named:return PlanResult('invalid_plan',error=Reason.AMBIGUOUS_PROJECT.value)
+        planned={str(v) for s in steps for k,v in s.arguments if k=='level'}
+        if planned and planned!=set(levels):return PlanResult('invalid_plan',error=Reason.LEVEL_MISMATCH.value)
     authorization=policy.Authorization.EXPLICIT if any(s.execution_policy.authorization==policy.Authorization.EXPLICIT for s in steps) else policy.Authorization.AUTOMATIC
     effects=frozenset(e for s in steps for e in s.execution_policy.effects)
     return PlanResult('planned',True,tuple(steps),authorization=authorization,effects=effects,planner_version=provider_mode.VERSION)
 
 
-def propose(goal,parser,projects,bindings, *, provider_mode=planner_provider):
+def propose(goal,parser,projects,bindings, *, provider_mode=None):
+    provider_mode=planner_provider.CURRENT if provider_mode is None else provider_mode
     if not isinstance(goal,str) or not goal.strip() or len(goal)>8192:
         return PlanResult('invalid_request',error='invalid_goal')
     reply=provider_mode.propose(goal,projects)
@@ -150,7 +187,7 @@ def propose(goal,parser,projects,bindings, *, provider_mode=planner_provider):
         errors={'planner_configuration_unavailable','provider_failure','provider_timeout','boundary_violation','malformed_output'}
         result=PlanResult('provider_error',error=reply.error if reply.error in errors else 'provider_failure')
     else:
-        try:result=validate(parse(reply.text),parser,projects,bindings,provider_mode=provider_mode)
+        try:result=validate(parse(reply.text),parser,projects,bindings,provider_mode=provider_mode,goal=goal)
         except InvalidPlan as exc:result=PlanResult('invalid_plan',error=exc.reason.value)
     if (not reply.error and 'testflight' in provider_mode.ALLOWED and public_release_requested(goal)):
         result = PlanResult('no_match')

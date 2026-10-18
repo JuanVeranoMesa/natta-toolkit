@@ -19,8 +19,37 @@ whole-goal push/custom-message rejection and exact focused evaluation commands.
 The remainder documents the accepted six-capability v1 contract and its preserved
 historical evaluator; it must not be read as commit or TestFlight planning evidence.
 Current production permits status/context/diff/build/test/verify/commit/testflight,
-uses planner_provider_v3.py, and shares local registry/schema/policy/handler
-validation. Projects/doctor remain excluded. See TESTFLIGHT.md for additive controls.
+uses the `planner_provider.CURRENT` revision (testflight-planner-v1), and shares
+local registry/schema/policy/handler validation. Projects/doctor remain excluded.
+See TESTFLIGHT.md for additive controls. Planner revisions are entries in
+`planner_provider.py` (phase8a-v1 module constants, `COMMIT_V2`, `TESTFLIGHT_V1`);
+a new planner domain adds one entry with its own frozen corpus and controls.
+
+## Deterministic project and level reconciliation
+
+The planner structures the plan: which capabilities, in which order, and which of
+the named projects each step targets. It does not get to choose a project or a
+verify level the goal did not state. `planning.validate(..., goal=GOAL)` (used by
+`plan`, `do` and do's model-free whole-plan revalidation) resolves the goal locally
+with the same helpers as `route`/`execute` (`parameters.project_matches` and
+`parameters.explicit_levels`) and requires:
+
+- Every step's canonical project is a registered project the goal names (alias,
+  registered alias or display name). A goal naming no registered project yields
+  `unresolved_project`; a step naming any other project yields `project_mismatch`.
+- When the goal names several projects, the set of planned projects must equal the
+  set named. A plan that uses only some of them chose among alternatives the goal
+  left open (for example "Example or Sample") and yields `ambiguous_project`.
+- A verify step's level must be a level the goal states explicitly. No stated
+  level yields `missing_level` (levels are never inferred or defaulted); a stated
+  level outside 1–3 yields `invalid_argument`; a different level, or planned
+  levels that do not account for every stated level, yield `level_mismatch`.
+
+Any mismatch invalidates the whole plan with no steps, and no second planner call
+or replan is made. What remains model-supplied is bounded structure: capability
+choice and order (validated against the planner domain, policy and handlers) and,
+when the goal names several projects, which named project each step uses. All
+frozen planner gold plans satisfy these rules; evaluation controls are unchanged.
 
 # Historical Phase 8A v1 contract (superseded domain/provider)
 
@@ -126,7 +155,9 @@ Statuses:
 no_match means there is no executable plan, not a failed provider. Bounded local
 errors include unknown_capability, unsupported_capability, unknown_project,
 ambiguous_project, invalid_argument, too_many_steps, forbidden_step,
-missing_handler, malformed_plan and planner_configuration_invalid. Provider and
+missing_handler, malformed_plan and planner_configuration_invalid; current goal
+reconciliation adds unresolved_project, project_mismatch, missing_level and
+level_mismatch. Provider and
 configuration failures remain distinct. Malformed structured output invalidates
 the plan and counts as a provider/output failure in evaluation. No unsafe proposed
 fields or reasoning appear in error results. Human output prints ordered steps,

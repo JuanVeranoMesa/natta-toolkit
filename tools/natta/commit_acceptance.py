@@ -98,7 +98,7 @@ def confirm(state_path,confirmed):
     before=runtime_effects.capture_commit(project)
     if not state['review_passed'] or fingerprint(before)!=state['snapshot_sha256']:raise ValueError('State changed since review; stop and review again')
     print('Creating ONE local commit for '+project.name+'; no push or rollback.',flush=True)
-    result=cli(natta.DEFAULT_REGISTRY,'execute','--json','--confirm','Commit '+project.name)
+    result=cli(natta.DEFAULT_REGISTRY,'execute','--json','--confirm','--expect','commit','Commit '+project.name)
     after=runtime_effects.capture_commit(project,before)
     verification=runtime_effects.compare(before,after,commits.ALLOWED)
     committed=result['result']['commit']

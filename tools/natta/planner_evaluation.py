@@ -29,7 +29,7 @@ def load_controls(projects):
         raise ValueError('Frozen corpus/version invalid')
     parser=natta.make_parser();bindings=natta.handler_bindings()
     for case in cases:
-        gold=planning.validate(case['expected'],parser,projects,bindings,provider_mode=provider)
+        gold=planning.validate(case['expected'],parser,projects,bindings,provider_mode=provider,goal=case['request'])
         if gold.status!=case['expected']['status']:raise ValueError('Gold does not match current controls')
     return controls,cases
 

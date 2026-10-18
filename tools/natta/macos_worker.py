@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 import sys
 
+import confinement
 import natta
 from execution import NattaError
 from semantic_execution import BoundedOutput
@@ -15,7 +16,7 @@ def main():
     if set(data) != {'capability', 'project', 'arguments', 'projects'}:
         raise ValueError('Invalid worker envelope')
     cap, arguments = data['capability'], data['arguments']
-    if cap not in ('status','context','diff') or arguments != {}:
+    if cap not in confinement.INSPECTION_TARGETS or arguments != {}:
         raise ValueError('Unsupported worker operation')
     projects = []
     for p in data['projects']:
@@ -23,6 +24,8 @@ def main():
             raise ValueError('Invalid worker project')
         if not re.fullmatch(r'[a-z0-9][a-z0-9_-]*',p['alias']):
             raise ValueError('Invalid canonical project ID')
+        if p['type'] not in natta.adapters.ADAPTERS:
+            raise ValueError('Unsupported adapter type')
         root=Path(p['path'])
         if not root.is_absolute() or root.resolve()!=root:
             raise ValueError('Noncanonical worker root')

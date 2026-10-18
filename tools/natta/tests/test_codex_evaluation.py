@@ -63,9 +63,11 @@ class CodexEvaluationTests(unittest.TestCase):
     def test_real_registry_validation_without_handler_imports(self):
         self.assertEqual(r.authoritative_ids() - {'codex', 'route'}, (set(self.order) - {'no_match'}) | {'commit', 'testflight'})
         with patch.object(r, 'authoritative_ids', return_value={'build'}):
-            with self.assertRaises(ValueError): r.definitions()
             with self.assertRaisesRegex(r.OutputFailure, 'unknown_choice'):
                 r.validate_output('{"choice":"test"}', self.order)
+        # Catalog drift makes routing definitions fail closed.
+        with patch.object(r.capabilities, 'CAPABILITIES', {'build': r.capabilities.CAPABILITIES['build']}):
+            with self.assertRaises(ValueError): r.definitions()
 
     def test_only_expected_files_and_policy(self):
         contents = r.generate(self.path, 'concise', self.order)

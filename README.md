@@ -51,9 +51,9 @@ implement that tool's behavior.
 | `testflight PROJECT [--confirm]` | Authorized signed archive/export and beta upload |
 | `codex [PROJECT]` | Interactive Codex handoff at checkout root or registered repository |
 | `route REQUEST` | One bounded semantic capability selection; no execution |
-| `execute [--confirm] REQUEST` | One validated semantic dispatch |
+| `execute [--confirm --expect CAPABILITY] REQUEST` | One validated semantic dispatch |
 | `plan GOAL` | At most four linear intents, one provider call; no execution |
-| `do [--confirm] GOAL` | Authorize a frozen plan, then sequential fail-fast dispatch |
+| `do GOAL` | Approve a displayed frozen plan, then sequential fail-fast dispatch |
 | `confinement validate` | Explicit local inspection-backend validation with disposable fixtures |
 
 `generic-git` supports inspection, local commit and Level 1 staged/unstaged
@@ -79,10 +79,13 @@ cp examples/projects.toml "$HOME/.config/natta/projects.toml"
 natta doctor
 ```
 
-Persist the checkout's absolute `bin` path in your shell's PATH configuration if
-desired. Keep this wrapper in the checkout; copying it elsewhere changes its
-relative source resolution. There is no installer, shell dependency, global
-Python installation, automatic dependency repair or dependency on another checkout.
+Persist the checkout's absolute `bin` path in your shell's PATH configuration,
+symlink `bin/natta` into a directory already on PATH (for example
+`ln -s "$PWD/bin/natta" ~/.local/bin/natta`), or run `bin/natta` by its path. The
+launcher follows symlinks to find its checkout; a copied wrapper cannot and exits
+with an error. Whether `natta` is on PATH is reported by `doctor` as an optional
+integration check, never as core health. There is no installer, shell dependency,
+global Python installation, automatic dependency repair or dependency on another checkout.
 
 ## Configuration and project registry
 
@@ -102,7 +105,8 @@ type = "generic-git"
 ```
 
 Each project must identify a Git repository root. Required fields are `alias`,
-`name`, `path`, and `type`; aliases are globally unique lowercase letters/digits,
+`name`, `path`, and `type` (`generic-git` or `ios-xcode`; any other adapter type
+fails when the registry loads); aliases are globally unique lowercase letters/digits,
 hyphens or underscores. `~` expands to your home directory. Relative project
 paths resolve against the registry file's directory, not the calling shell.
 Optional `agents`, `architecture`, `roadmap` and `version_source` paths must stay
@@ -124,18 +128,27 @@ natta verify example --level 1
 natta --registry examples/projects.toml projects
 natta route --json "Verify Example App at level 1"
 natta plan --json "Inspect Example App and then verify it at level 1"
-natta execute --confirm "Verify Example App at level 1"
+natta execute --confirm --expect verify "Verify Example App at level 1"
 ```
 
 Semantic commands use the existing Codex CLI provider boundary with explicit
 `gpt-6-luna`. Model access and CLI protocol compatibility are required; there is
 no provider fallback or retry. Requests and frozen bounded descriptions are
 supplied to selection; planning also receives bounded project identity/aliases,
-not arbitrary project files. Project/verify parameters are resolved locally.
+not arbitrary project files. For `route`/`execute`, the model selects only the
+capability; the project and verify level are resolved locally from the request.
+For `plan`/`do`, the model proposes the ordered steps, but every step's project
+must be one the goal names and every verify level one the goal states, checked
+locally; the model's remaining authority is capability order and, when the goal
+names several projects, which named project each step targets.
+
 Natural-language wording never authorizes execution. Explicit policies require
-invocation-local `--confirm` or affirmative terminal approval; JSON/non-TTY never
-prompt. `do` authorizes the entire frozen plan before any prefix and reuses the
-single-capability dispatcher. There is no autonomous replanning or rollback.
+affirmative terminal approval after routing, or invocation-local
+`--confirm --expect CAPABILITY`, which fails closed if the route selects any other
+capability. JSON/non-TTY never prompt. `do` authorizes the entire displayed plan
+before any prefix and reuses the single-capability dispatcher; `do --confirm`
+cannot preauthorize a plan with explicit steps. There is no autonomous replanning
+or rollback.
 
 Direct `projects` and `doctor` are available. Semantic `projects` and `doctor`
 intentionally remain unavailable because no validated confinement mode exists.
@@ -162,9 +175,13 @@ claiming universal JSON support. Programmer exceptions remain exceptions.
 `no_match` is a valid non-executing selection, not an infrastructure success
 substitute. [Result contracts](tools/natta/docs/RESULT_CONTRACT.md) define details.
 
-`doctor --json` exposes `core_ready`, required Check-shaped rows and optional
-provider/runtime/confinement/TestFlight rows. Missing optional components do not
-fail core readiness. Doctor performs no model inference, build, signing or upload.
+`doctor` groups checks into **core** (registry, Git, capability integration
+parity, policy/handlers and registered projects), **provider and model**
+(Codex CLI, semantic router, optional local model) and **platform and
+integration** (launcher on PATH, confinement, TestFlight readiness). Only core
+determines `core_ready`; `doctor --json` rows carry `group` and `optional`. An
+invalid registry, including an unknown adapter type, is a failed core check.
+Doctor performs no model inference, build, signing or upload.
 
 Workflow `--verbose` streams diagnostic output; `--log` explicitly retains logs
 under `~/Library/Logs/NattaToolkit/`. Default temporary execution state is removed
@@ -199,8 +216,14 @@ untracked, non-ignored files is refused by those protected operations.
 Protected/workflow verification (direct build/test/verify, semantic execution,
 commit and TestFlight) does not currently support repositories containing Git
 submodules; such repositories are refused with `submodule_unsupported`
-(`submodule_commit_unsupported` for commit). Direct `status`, `context` and `diff`
-remain available.
+(`submodule_commit_unsupported` for commit, including a nested repository that
+`git add -A` would stage, which is refused before any commit is created). Direct
+`status`, `context` and `diff` remain available. Natta-owned Git inspection never
+runs a repository-configured `core.fsmonitor` hook.
+
+The direct build/test/verify integrity snapshot covers tracked files and untracked
+files that are not ignored, plus Git state; ignored build outputs and caches are
+outside it, so Natta does not verify every byte under the repository directory.
 
 Only macOS is supported/tested for v1. Native semantic inspection uses legacy
 `sandbox-exec` and exact local validation; Xcode workflows and Apple services are
@@ -223,17 +246,19 @@ cd tools/natta
 python3 -B -m unittest discover -s tests -v
 ```
 
-The regression suite (482 tests at this revision) uses temporary repositories and
+The regression suite (539 tests at this revision) uses temporary repositories and
 mocked providers/Apple commands. Historical-evidence-dependent tests now construct
 synthetic comparison data; no safety test was removed. Sanitized evaluation inputs
 have public control hashes and are not represented as newly measured benchmarks.
 See [evaluation provenance](docs/EVALUATION.md).
 
-New capabilities require deliberate integration: deterministic implementation,
-CLI registration, bounded metadata, parameter contracts, effect/policy declaration,
-handler binding, protection/confinement where appropriate, result support and
-regression tests. Automatic arbitrary-script discovery is intentionally absent.
-The [extension walkthrough](docs/EXTENDING.md) annotates the existing mechanism.
+New capabilities require deliberate integration: identity in
+`tools/natta/capabilities.py`, a deterministic handler, parameter contract,
+effect/policy declaration, handler binding, routing/planner eligibility,
+confinement classification, result support and regression tests.
+`capability_integration.py` mechanically checks that every layer agrees.
+Automatic arbitrary-script discovery is intentionally absent. The
+[contributor checklist](docs/EXTENDING.md) gives the exact order.
 
 ## Status and roadmap
 

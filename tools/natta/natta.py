@@ -2,6 +2,7 @@
 """Deterministic local project control plane (Python 3.11+)."""
 
 import argparse
+import capabilities
 import contextlib
 import io
 import json
@@ -15,7 +16,7 @@ from dataclasses import asdict, dataclass, field, replace
 import commits
 import testflight
 import adapters
-from execution import Check, NattaError, execute, render, snapshot, assert_integrity, ExecutionDirectory, git_environment
+from execution import Check, NattaError, execute, render, snapshot, assert_integrity, ExecutionDirectory, git_environment, bounded_text
 import os
 from pathlib import Path
 import re
@@ -30,11 +31,6 @@ ROOT = Path(__file__).resolve().parent
 WORKSPACE_ROOT = ROOT.parent.parent
 DEFAULT_REGISTRY = Path.home() / ".config/natta/projects.toml"
 DOCS = ("agents", "architecture", "roadmap")
-# Commands with an explicit main() branch. Any other parsed command fails closed;
-# it never falls through to inspection or another capability.
-DIRECT_DISPATCH = frozenset(("do", "plan", "confinement", "route", "execute", "codex", "projects",
-                             "doctor", "testflight", "commit", "build", "test", "verify",
-                             "status", "context", "diff"))
 
 
 @dataclass(frozen=True)
@@ -75,6 +71,10 @@ def load_registry(path):
             if alias in used:
                 raise NattaError(f"Duplicate alias: {alias}")
             used.add(alias)
+        # Fail at load, before any project is considered valid; never substitute.
+        if entry["type"] not in adapters.ADAPTERS:
+            raise NattaError(f"Project {entry['alias']}: unsupported adapter type "
+                             f"{bounded_text(entry['type'], 64)!r}; supported: {', '.join(sorted(adapters.ADAPTERS))}")
         project_path = Path(entry["path"]).expanduser()
         if not project_path.is_absolute():
             project_path = Path(path).resolve().parent / project_path
@@ -116,10 +116,10 @@ def launch_codex(target):
 
 def git(project, *args):
     # No shell, optional index refresh, pager, external diff or text conversion,
-    # and no ambient GIT_* repository/index/config routing.
+    # fsmonitor hook, or ambient GIT_* repository/index/config routing.
     try:
         result = subprocess.run(
-            ["git", "--no-optional-locks", "-C", str(project.path), *args],
+            ["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", str(project.path), *args],
             capture_output=True, env=git_environment(), timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -201,48 +201,74 @@ def orientation(project):
     return "\n".join(lines)
 
 
-def doctor(projects, *, json_mode=False):
-    checks = [(True, "Registry schema and unique aliases")]
-    checks.append((shutil.which("git") is not None, "git available"))
+def launcher_check():
+    """Installation integration only: is a `natta` on PATH this checkout's launcher?
+
+    Core readiness never depends on it; running bin/natta by path, or through a
+    symlink to it, is a complete installation.
+    """
     launcher = shutil.which("natta")
     expected = WORKSPACE_ROOT / "bin/natta"
-    checks.append((launcher is not None and Path(launcher).resolve() == expected.resolve() and os.access(expected, os.X_OK), f"Managed launcher on PATH: {launcher or 'missing'}"))
-    # Optional runtime inspection is explicit about omissions, without making
-    # deterministic core health depend on installation of ML dependencies.
-    local_checks = local_model.doctor_checks()
-    routing_checks = [(shutil.which("codex") is not None, "Codex CLI available (optional semantic provider/interface)"),
-                      *routing.doctor_checks(), *semantic_execution.confinement.doctor_checks(projects),
-                      *testflight.doctor_checks(projects)]
-    checks.extend(policy.doctor_checks(routing.provider.authoritative_ids() - {'codex', 'route'}))
-    checks.extend(semantic_execution.doctor_checks(routing.provider.authoritative_ids() - {'codex', 'route'}, handler_bindings(), make_parser()))
+    try:
+        current = launcher is not None and Path(launcher).resolve() == expected.resolve() and os.access(expected, os.X_OK)
+    except (OSError, RuntimeError):  # RuntimeError: symlink loop before Python 3.13
+        current = False
+    return current, f"Launcher on PATH resolves to this checkout: {launcher or 'missing'}"
+
+
+DOCTOR_GROUPS = (("core", "Core"), ("provider", "Provider and model (optional)"),
+                 ("integration", "Platform and integration (optional)"))
+
+
+def doctor(projects, *, json_mode=False, registry_error=None):
+    """Core readiness is Natta's own health: registry, Git, capability integrity
+    and registered projects. Provider and integration rows are reported but
+    never determine core readiness."""
+    core = [(registry_error is None, "Registry schema, unique aliases and adapter types" if registry_error is None
+             else "Registry: " + bounded_text(str(registry_error), 500))]
+    core.append((shutil.which("git") is not None, "git available"))
+    import capability_integration
+    core.extend(capability_integration.doctor_checks(make_parser(), handler_bindings(), DIRECT_HANDLERS))
+    ids = frozenset(capabilities.capability_ids())
+    core.extend(policy.doctor_checks(ids))
+    core.extend(semantic_execution.doctor_checks(ids, handler_bindings(), make_parser()))
     for project in projects:
-        checks.append((project.path.is_dir(), f"{project.alias}: project directory"))
+        core.append((project.path.is_dir(), f"{project.alias}: project directory"))
         for key, file in project.files.items():
-            checks.append((file.is_file(), f"{project.alias}: {key} ({file})"))
+            core.append((file.is_file(), f"{project.alias}: {key} ({file})"))
         if shutil.which("git") and project.path.is_dir():
             try:
                 orientation(project)
-                checks.append((True, f"{project.alias}: repository and metadata readable"))
+                core.append((True, f"{project.alias}: repository and metadata readable"))
             except NattaError as exc:
-                checks.append((False, f"{project.alias}: {exc}"))
+                core.append((False, f"{project.alias}: {exc}"))
         try:
-            checks.extend((passed, f"{project.alias}: {label}") for passed, label in adapters.resolve(project).diagnose())
+            core.extend((passed, f"{project.alias}: {label}") for passed, label in adapters.resolve(project).diagnose())
         except NattaError as exc:
-            checks.append((False, f"{project.alias}: {exc}"))
-    core_ready = all(passed for passed, _ in checks)
-    optional_checks = [*local_checks, *routing_checks]
+            core.append((False, f"{project.alias}: {exc}"))
+    # Optional runtime inspection is explicit about omissions, without making
+    # deterministic core health depend on providers, ML dependencies or install style.
+    provider = [(shutil.which("codex") is not None, "Codex CLI available (optional semantic provider/interface)"),
+                *routing.doctor_checks(), *local_model.doctor_checks()]
+    integration = [launcher_check(), *semantic_execution.confinement.doctor_checks(projects),
+                   *testflight.doctor_checks(projects)]
+    groups = {"core": core, "provider": provider, "integration": integration}
+    core_ready = all(passed for passed, _ in core)
     if json_mode:
-        rows = [Check(label, status='passed' if passed else 'failed') for passed, label in checks]
-        rows.extend(Check(label, status='passed' if passed else 'unavailable', optional=True)
-                    for passed, label in optional_checks)
-        print(json.dumps({'status': 'passed' if core_ready else 'failed', 'core_ready': core_ready,
-                          'checks': [asdict(check) for check in rows], 'error': None}, sort_keys=True))
+        rows = [{**asdict(Check(label, status="passed" if passed else "failed" if group == "core" else "unavailable",
+                                optional=group != "core")), "group": group}
+                for group, _ in DOCTOR_GROUPS for passed, label in groups[group]]
+        print(json.dumps({"status": "passed" if core_ready else "failed", "core_ready": core_ready, "checks": rows,
+                          "error": None if registry_error is None else "registry_invalid"}, sort_keys=True))
     else:
-        for passed, label in checks:
-            print(f"{'OK' if passed else 'FAIL'}  {label}")
-        for passed, label in optional_checks:
-            print(f"{'OK' if passed else 'UNAVAILABLE'}  {label} (optional)")
-        print(f"Core Natta: {'ready' if core_ready else 'not ready'}; optional checks do not determine core readiness.")
+        for group, title in DOCTOR_GROUPS:
+            print(title)
+            for passed, label in groups[group]:
+                if group == "core":
+                    print(f"{'OK' if passed else 'FAIL'}  {label}")
+                else:
+                    print(f"{'OK' if passed else 'UNAVAILABLE'}  {label} (optional)")
+        print(f"Core Natta: {'ready' if core_ready else 'not ready'}; provider and integration checks do not determine core readiness.")
     return 0 if core_ready else 1
 
 
@@ -267,25 +293,14 @@ def make_parser():
     parser.add_argument("--registry", type=Path, default=DEFAULT_REGISTRY,
                         metavar="PATH", help="Project registry TOML (default: ~/.config/natta/projects.toml)")
     commands = parser.add_subparsers(dest="command", required=True, title="commands")
-    pages = {
-        "route": ("Propose a capability using Luna; never execute", "Bounded semantic capability selection using gpt-6-luna. Natta validates the result and never executes it. Projects and bounded arguments are resolved locally from the registry and CLI schema. Sends only the request and routing definitions; no repository inspection.", 'natta route "Build Example for the simulator"'),
-        "codex": ("Launch Codex at the toolkit checkout or a registered project", "Launch the interactive Codex CLI from the toolkit checkout root, or from a registered project's repository when PROJECT is supplied. Uses Codex's normal instruction discovery; no prompt is injected.", "natta codex"),
-        "projects": ("List registered projects", "List registered projects with alias, display name, adapter type, and repository path.", "natta projects"),
-        "status": ("Inspect project and Git status", "Deterministic, read-only inspection of branch, working-tree status, version/build, latest commit, and canonical document paths.", "natta status example"),
-        "context": ("Show compact project orientation", "Compact orientation/context summary for humans and future provider launchers. Currently shares status fields and rendering; it does not invoke AI or read document contents.", "natta context sample"),
-        "diff": ("Inspect changed paths and Git differences", "Read-only Git/project difference inspection: changed paths and staged/unstaged summaries. Does not stage, reset, clean, or commit.", "natta diff example"),
-        "doctor": ("Diagnose environment and project health", "Diagnostic-only environment, configuration, and project health checks. Phase 2 checks include adapters, Xcode availability, and container/scheme metadata. Does not build, test, verify, install, or repair; simulator availability is checked during test discovery.", "natta doctor"),
-        "build": ("Run a registered development build", "Run the registered deterministic development build. No AI chooses build commands. Uses external temporary build state and reports failures without fixing them.", "natta build example"),
-        "test": ("Run a registered normal test workflow", "Run the registered deterministic normal test workflow. Simulator or external prerequisites may be unavailable. Uses external temporary test state; no automatic fixes.", "natta test sample"),
-        "testflight": ("Archive and upload a build for TestFlight", "Archive a Release build and upload it to App Store Connect for TestFlight. Requires explicit confirmation; never submits App Review or releases publicly. --check validates local prerequisites only.", "natta testflight example"),
-        "commit": ("Commit all project changes locally", "Stage all current changes inside the registered repository and create one local commit. No push, hooks, signing or rollback.", "natta commit example"),
-        "verify": ("Run project-specific validation by level", "Run a registered deterministic verification workflow. Exact checks are project-specific; missing external prerequisites may produce unavailable/skipped states. No automatic fixes. Level 3 is not physical-device or release certification.", "natta verify example --level 2"),
-    }
-    # Reviewed Git mutation remains an atomic, project-scoped direct capability.
-    for command, (summary, description, example) in pages.items():
-        epilog = "Example:\n  " + example
-        if command == "codex":
-            epilog = """Invocation forms:
+    # Command identity, help text and PROJECT positionals come from capabilities.py.
+    for command, page in capabilities.COMMANDS.items():
+        if not page.description:
+            sub = commands.add_parser(command, help=page.summary)
+        else:
+            epilog = "Example:\n  " + page.example
+            if command == "codex":
+                epilog = """Invocation forms:
   natta codex
     Launch Codex from the toolkit checkout root.
   natta codex <project>
@@ -295,19 +310,19 @@ Examples:
   natta codex
   natta codex example
   natta codex sample"""
-        if command == "verify":
-            epilog = """Validation levels:
+            if command == "verify":
+                epilog = """Validation levels:
   Level 1: Localized / low-risk validation.
   Level 2: Business-logic validation with stronger automated checks.
   Level 3: Platform, persistence, integration, or release-sensitive validation.
 
 """ + epilog
-        sub = commands.add_parser(command, help=summary, description=textwrap.fill(description, width=78),
-                                  epilog=epilog, formatter_class=argparse.RawDescriptionHelpFormatter)
-        if command not in ("projects", "doctor", "route"):
+            sub = commands.add_parser(command, help=page.summary, description=textwrap.fill(page.description, width=78),
+                                      epilog=epilog, formatter_class=argparse.RawDescriptionHelpFormatter)
+        if page.project != "none":
             sub.add_argument("project", metavar="PROJECT",
                              help="Registered Natta project alias, such as example or sample",
-                             **({"nargs": "?"} if command == "codex" else {}))
+                             **({"nargs": "?"} if page.project == "optional" else {}))
         if command == "doctor":
             sub.add_argument("--json", action="store_true", help="Structured core and optional health checks")
         if command == "commit":
@@ -328,21 +343,27 @@ Examples:
         if command == "verify":
             sub.add_argument("--level", type=int, choices=(1, 2, 3), required=True,
                              help="Validation level (see levels below)")
-    # Control command outside pages: never a bounded semantic target itself.
-    sub = commands.add_parser('execute', help='Execute one resolved route after local authorization')
-    sub.add_argument('request', metavar='REQUEST')
-    sub.add_argument('--json', action='store_true', help='Print the structured execution result')
-    sub.add_argument('--confirm', action='store_true', help='Authorize explicit-policy execution for this invocation only')
-    sub = commands.add_parser('plan', help='Propose a bounded experimental plan; never execute')
-    sub.add_argument('goal', metavar='GOAL')
-    sub.add_argument('--json', action='store_true', help='Print the structured planning result')
-    sub = commands.add_parser('do', help='Execute one bounded plan after whole-plan authorization')
-    sub.add_argument('goal', metavar='GOAL')
-    sub.add_argument('--json', action='store_true', help='Print the structured compound result')
-    sub.add_argument('--confirm', action='store_true', help='Authorize the complete validated plan for this invocation')
-    sub = commands.add_parser('confinement', help='Validate native confinement without Luna')
-    actions = sub.add_subparsers(dest='confinement_action', required=True)
-    validate = actions.add_parser('validate', help='Disposable inspection confinement probes; no Luna or app workflows')
+        # Control commands: never bounded semantic targets themselves.
+        if command == "execute":
+            sub.add_argument('request', metavar='REQUEST')
+            sub.add_argument('--json', action='store_true', help='Print the structured execution result')
+            sub.add_argument('--confirm', action='store_true',
+                             help='Preauthorize the explicit action named by --expect, for this invocation only')
+            sub.add_argument('--expect', metavar='CAPABILITY', choices=capabilities.capability_ids(),
+                             help='Capability the route must select (required with --confirm); any other '
+                                  'selection fails before approval or execution')
+        if command == "plan":
+            sub.add_argument('goal', metavar='GOAL')
+            sub.add_argument('--json', action='store_true', help='Print the structured planning result')
+        if command == "do":
+            sub.add_argument('goal', metavar='GOAL')
+            sub.add_argument('--json', action='store_true', help='Print the structured compound result')
+            sub.add_argument('--confirm', action='store_true',
+                             help='Cannot preauthorize model-proposed explicit steps: such a plan is refused; '
+                                  'approve the displayed plan in a terminal instead')
+        if command == "confinement":
+            actions = sub.add_subparsers(dest='confinement_action', required=True)
+            actions.add_parser('validate', help='Disposable inspection confinement probes; no semantic model or app workflows')
     return parser
 
 
@@ -357,7 +378,7 @@ def prepare_route(request, parser, registry, *, selector=None):
             result = replace(result, **asdict(resolution))
         except (NattaError, OSError, ValueError):
             result = routing.RouteResult("routing_error", None, "parameter_configuration_invalid")
-    capability_ids = routing.provider.authoritative_ids() - {'codex', 'route'}
+    capability_ids = frozenset(capabilities.capability_ids())
     try:
         policy.validate_catalog(capability_ids)
     except (ValueError, TypeError):
@@ -372,8 +393,8 @@ def handle_projects(projects, project, arguments):
     return semantic_execution.HandlerOutcome(0)
 
 
-def handle_doctor(projects, project, arguments, *, json_mode=False):
-    return semantic_execution.HandlerOutcome(doctor(projects, json_mode=json_mode))
+def handle_doctor(projects, project, arguments, *, json_mode=False, registry_error=None):
+    return semantic_execution.HandlerOutcome(doctor(projects, json_mode=json_mode, registry_error=registry_error))
 
 
 def handle_inspection(operation, projects, project, arguments):
@@ -463,6 +484,126 @@ def authorize_resolved(route, project):
         route.capability, project.name if project else 'none', route.arguments))
 
 
+def run_do(args, parser):
+    import compound_execution
+    result = compound_execution.run(args.goal, parser, lambda: load_registry(args.registry),
+        handler_bindings(), confirm=args.confirm, json_mode=args.json)
+    print(json.dumps(result.as_dict(), sort_keys=True) if args.json else compound_execution.render(result))
+    return result.exit_code
+
+
+def run_plan(args, parser):
+    import planning
+    result = planning.propose(args.goal, parser, load_registry(args.registry), handler_bindings())
+    print(json.dumps(result.as_dict(), sort_keys=True) if args.json else planning.render(result))
+    return 0 if result.status in ('planned', 'no_match') else 1
+
+
+def run_confinement(args, parser):
+    import macos_confinement
+    code, result = macos_confinement.validate()
+    print(json.dumps(result, sort_keys=True))
+    return code
+
+
+def run_route(args, parser):
+    result = prepare_route(args.request, parser, args.registry)
+    print(json.dumps(result.as_dict(), sort_keys=True) if args.json else routing.render_route(result))
+    return 0 if result.status in ('matched', 'no_match') else 1
+
+
+def run_execute(args, parser):
+    if args.confirm and args.expect is None:
+        # Refuse before routing: a blanket approval cannot name the action the
+        # model would later select. No provider call is made.
+        route = routing.RouteResult('invalid_request', None, 'expected_capability_required')
+        result = semantic_execution.ExecutionResult(route, 'invalid_request', error=route.error)
+    else:
+        result = semantic_execution.dispatch(
+            prepare_route(args.request, parser, args.registry), parser, lambda: load_registry(args.registry),
+            frozenset(capabilities.capability_ids()), handler_bindings(), confirm=args.confirm,
+            expected_capability=args.expect, authorize=None if args.json else authorize_resolved)
+    print(json.dumps(result.as_dict(), sort_keys=True) if args.json else semantic_execution.render_result(result))
+    return result.exit_code
+
+
+def run_codex(args, parser):
+    target = lookup(load_registry(args.registry), args.project).path if args.project else WORKSPACE_ROOT
+    return launch_codex(target)
+
+
+def run_projects(args, parser):
+    return handle_projects(load_registry(args.registry), None, ()).exit_code
+
+
+def run_doctor(args, parser):
+    # Doctor reports an invalid registry as a failed core check rather than
+    # stopping before any diagnostics.
+    try:
+        projects, error = load_registry(args.registry), None
+    except NattaError as exc:
+        projects, error = [], exc
+    return handle_doctor(projects, None, (), json_mode=args.json, registry_error=error).exit_code
+
+
+def run_testflight(args, parser):
+    projects = load_registry(args.registry)
+    project = lookup(projects, args.project)
+    if args.check:
+        result = testflight.execute(projects, project, check=True)
+        print(json.dumps(result.as_dict(), sort_keys=True) if args.json else testflight.render(result, project))
+        return result.exit_code
+    ids = frozenset(capabilities.capability_ids())
+    route = routing.RouteResult('matched', 'testflight', project=project.alias, arguments_resolved=True)
+    route = replace(route, execution_policy=policy.evaluate(route, ids,
+        parameters.schema_for(parser, 'testflight'), projects))
+    # The direct command names its own capability, so --confirm covers a known action.
+    result = semantic_execution.dispatch(route, parser, lambda: load_registry(args.registry),
+        ids, handler_bindings(), confirm=args.confirm, expected_capability='testflight',
+        authorize=None if args.json else authorize_testflight)
+    data = result.as_dict()
+    # Direct capability result stays first-class; the shared gate retains
+    # authoritative authorization/runtime fields, including after failures.
+    if result.outcome and result.outcome.testflight_result:
+        data = {**result.outcome.testflight_result.as_dict(), 'execution': data}
+        if result.status in ('effect_violation', 'verification_unavailable'):
+            data.update(status='verification_failed', stage='verification', error=result.error)
+    print(json.dumps(data, sort_keys=True) if args.json else
+          (result.report.rstrip() if result.execution_succeeded is True else semantic_execution.render_result(result)))
+    return result.exit_code
+
+
+def run_commit(args, parser):
+    project = lookup(load_registry(args.registry), args.project)
+    result = commits.create(project, args.message)
+    print(json.dumps(result.as_dict(), sort_keys=True) if args.json else commits.render(result, project))
+    return result.exit_code
+
+
+def run_workflow(args, parser):
+    projects = load_registry(args.registry)
+    arguments = (('level', args.level),) if args.command == 'verify' else ()
+    return handle_workflow(args.command, projects, lookup(projects, args.project), arguments,
+                           verbose=args.verbose, log=args.log).exit_code
+
+
+def run_inspection(args, parser):
+    projects = load_registry(args.registry)
+    return handle_inspection(args.command, projects, lookup(projects, args.project), ()).exit_code
+
+
+# Explicit direct handlers, one per direct command in capabilities.COMMANDS. A
+# parsed command without an entry fails closed; it never falls through to
+# inspection or another capability.
+DIRECT_HANDLERS = MappingProxyType({
+    'do': run_do, 'plan': run_plan, 'confinement': run_confinement,
+    'route': run_route, 'execute': run_execute, 'codex': run_codex,
+    'projects': run_projects, 'doctor': run_doctor, 'testflight': run_testflight,
+    'commit': run_commit, 'build': run_workflow, 'test': run_workflow, 'verify': run_workflow,
+    'status': run_inspection, 'context': run_inspection, 'diff': run_inspection,
+})
+
+
 def main(argv=None):
     parser = make_parser()
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -482,78 +623,10 @@ def main(argv=None):
     else:
         args = parser.parse_args(argv)
     try:
-        if args.command not in DIRECT_DISPATCH:
+        handler = DIRECT_HANDLERS.get(args.command)
+        if handler is None:
             raise unhandled_command(args.command)
-        if args.command == 'do':
-            import compound_execution
-            result = compound_execution.run(args.goal, parser, lambda: load_registry(args.registry),
-                handler_bindings(), confirm=args.confirm, json_mode=args.json)
-            print(json.dumps(result.as_dict(), sort_keys=True) if args.json else compound_execution.render(result))
-            return result.exit_code
-        if args.command == 'plan':
-            import planning
-            result = planning.propose(args.goal, parser, load_registry(args.registry), handler_bindings())
-            print(json.dumps(result.as_dict(), sort_keys=True) if args.json else planning.render(result))
-            return 0 if result.status in ('planned', 'no_match') else 1
-        if args.command == 'confinement':
-            import macos_confinement
-            code, result = macos_confinement.validate()
-            print(json.dumps(result, sort_keys=True))
-            return code
-        if args.command in ('route', 'execute'):
-            result = prepare_route(args.request, parser, args.registry)
-            if args.command == 'route':
-                print(json.dumps(result.as_dict(), sort_keys=True) if args.json else routing.render_route(result))
-                return 0 if result.status in ('matched', 'no_match') else 1
-            result = semantic_execution.dispatch(
-                result, parser, lambda: load_registry(args.registry),
-                routing.provider.authoritative_ids() - {'codex', 'route'},
-                handler_bindings(), confirm=args.confirm,
-                authorize=None if args.json else authorize_resolved)
-            print(json.dumps(result.as_dict(), sort_keys=True) if args.json else semantic_execution.render_result(result))
-            return result.exit_code
-        if args.command == "codex":
-            target = lookup(load_registry(args.registry), args.project).path if args.project else WORKSPACE_ROOT
-            return launch_codex(target)
-        projects = load_registry(args.registry)
-        if args.command == "projects":
-            return handle_projects(projects, None, ()).exit_code
-        if args.command == "doctor":
-            return handle_doctor(projects, None, (), json_mode=args.json).exit_code
-        project = lookup(projects, args.project)
-        if args.command == 'testflight':
-            if args.check:
-                result = testflight.execute(projects, project, check=True)
-                print(json.dumps(result.as_dict(), sort_keys=True) if args.json else testflight.render(result, project))
-                return result.exit_code
-            ids = routing.provider.authoritative_ids() - {'codex', 'route'}
-            route = routing.RouteResult('matched', 'testflight', project=project.alias, arguments_resolved=True)
-            route = replace(route, execution_policy=policy.evaluate(route, ids,
-                parameters.schema_for(parser, 'testflight'), projects))
-            result = semantic_execution.dispatch(route, parser, lambda: load_registry(args.registry),
-                ids, handler_bindings(), confirm=args.confirm,
-                authorize=None if args.json else authorize_testflight)
-            data = result.as_dict()
-            # Direct capability result stays first-class; the shared gate retains
-            # authoritative authorization/runtime fields, including after failures.
-            if result.outcome and result.outcome.testflight_result:
-                data = {**result.outcome.testflight_result.as_dict(), 'execution': data}
-                if result.status in ('effect_violation', 'verification_unavailable'):
-                    data.update(status='verification_failed', stage='verification', error=result.error)
-            print(json.dumps(data, sort_keys=True) if args.json else
-                  (result.report.rstrip() if result.execution_succeeded is True else semantic_execution.render_result(result)))
-            return result.exit_code
-        if args.command == 'commit':
-            result=commits.create(project,args.message)
-            print(json.dumps(result.as_dict(),sort_keys=True) if args.json else commits.render(result,project))
-            return result.exit_code
-        if args.command in ('build', 'test', 'verify'):
-            arguments = (('level', args.level),) if args.command == 'verify' else ()
-            return handle_workflow(args.command, projects, project, arguments,
-                                   verbose=args.verbose, log=args.log).exit_code
-        if args.command in ("status", "context", "diff"):
-            return handle_inspection(args.command, projects, project, ()).exit_code
-        raise unhandled_command(args.command)
+        return handler(args, parser)
     except (NattaError, OSError) as exc:
         if getattr(args, 'json', False):
             print(json.dumps(cli_failure(args), sort_keys=True))
@@ -563,7 +636,6 @@ def main(argv=None):
 
 
 def unhandled_command(command):
-    from execution import bounded_text
     return NattaError(f"Internal configuration error: no direct handler for command {bounded_text(str(command), 64)!r}")
 
 

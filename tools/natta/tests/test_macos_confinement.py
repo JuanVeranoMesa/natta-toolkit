@@ -144,7 +144,9 @@ class MacOSBackendTests(unittest.TestCase):
         self.assertEqual(manifest['current_implementation'],actual)
         self.assertNotIn(actual,manifest['previous_implementations'])
         # Audited prior inspection records stay accepted: the v1 release implementation
-        # differs only by Python 3.11-3.13 annotation and Git environment/filter fixes.
+        # differs only by Python 3.11-3.13 annotation and Git environment/filter fixes,
+        # plus stricter inspection Git argv (no fsmonitor) and worker adapter-type checks.
+        # Unreleased intermediate fingerprints are never listed.
         self.assertIn('0944bc4a5f3731b0375bfd2334b729ee826573f0f42d4961571ee6c6b802f2a3',manifest['previous_implementations'])
         self.assertTrue(all(re.fullmatch(r'[0-9a-f]{64}',value) for value in manifest['previous_implementations']))
         self.assertEqual(len(set(manifest['previous_implementations'])),len(manifest['previous_implementations']))

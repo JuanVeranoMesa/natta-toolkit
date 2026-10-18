@@ -18,7 +18,7 @@ def parse_execution(kind, value, root):
     if value.keys() - allowed:
         raise NattaError("Unknown Xcode execution fields")
     if not value:
-        return value  # Phase 1 registrations may remain inspection-only.
+        return value  # Registrations without execution remain inspection-only.
     if len(value.keys() & {"project", "workspace"}) != 1:
         raise NattaError("execution requires exactly one project or workspace")
     def valid_name(item):
@@ -59,7 +59,8 @@ class GenericGit:
         return [(True, "generic-git adapter (no build/test workflow)")]
 
     def diff_checks(self):
-        base = ("git", "--no-optional-locks", "-C", str(self.project.path), "diff", "--no-ext-diff", "--no-textconv")
+        # Natta-owned Git reads never run a repository-configured fsmonitor hook.
+        base = ("git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", str(self.project.path), "diff", "--no-ext-diff", "--no-textconv")
         return [Check("git diff --check (unstaged)", (*base, "--check")),
                 Check("git diff --check (staged)", (*base, "--cached", "--check"))]
 
@@ -158,13 +159,13 @@ class IOSXcode(GenericGit):
         if level >= 2:
             checks.append(tests("UI smoke tests", config.get("ui_tests", [])))
         if level == 3:
-            paths = query(("git", "--no-optional-locks", "ls-files", "--cached", "--others", "--exclude-standard", "-z"), self.project.path, self.runner).split('\0')
+            paths = query(("git", "--no-optional-locks", "-c", "core.fsmonitor=false", "ls-files", "--cached", "--others", "--exclude-standard", "-z"), self.project.path, self.runner).split('\0')
             files = sorted({str((self.project.path / p).resolve()) for p in paths if p and Path(p).suffix in (".pbxproj", ".plist", ".entitlements", ".xcprivacy") and (self.project.path / p).is_file()})
             if any(not Path(p).is_relative_to(self.project.path) for p in files):
                 raise NattaError("Metadata path escapes repository")
             checks.append(Check("Project/plist syntax", ("plutil", "-lint", *files)) if files else Check("Project/plist syntax", status="unavailable", reason="No metadata files found"))
             checks.append(Check("Physical-device validation", status="unavailable", reason="No signed device workflow registered; no installation or build-number mutation", optional=True))
-            checks.append(Check("Manual platform/release checks", status="skipped", reason="Geofence hardware, distribution and hands-on upgrade checks are outside automated validation; migration tests run in unit suite where present"))
+            checks.append(Check("Manual platform/release checks", status="skipped", reason="Hardware-dependent, distribution and hands-on upgrade checks are outside automated validation; migration tests run in the unit suite where present"))
         return checks + self.diff_checks()
 
 
@@ -177,4 +178,3 @@ def resolve(project, runner=run):
     except KeyError as exc:
         raise NattaError(f"Unsupported adapter: {project.type}") from exc
     return adapter(project, runner)
-

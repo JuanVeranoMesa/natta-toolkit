@@ -20,7 +20,7 @@ SOURCE = Path(__file__).resolve().parent
 SCHEMA = 1
 FILES = ('macos_confinement.py','macos_worker.py','confinement.py','semantic_execution.py',
          'natta.py','execution.py','adapters.py','runtime_effects.py','policy.py','parameters.py',
-         'testflight.py')
+         'testflight.py','capabilities.py')
 
 
 def canonical(path):
@@ -151,7 +151,7 @@ def save_record(mode, fingerprint):
 
 
 def mode_for(capability):
-    if capability in ('status','context','diff'):return 'inspection'
+    if capability in c.INSPECTION_TARGETS:return 'inspection'
     raise c.ConfinementUnavailable('capability_mode_unvalidated')
 
 
@@ -333,7 +333,7 @@ sys.exit(1)
 
 
 def validate():
-    """Explicit zero-Luna disposable inspection validation. Never app workflows."""
+    """Explicit disposable inspection validation; no semantic model or app workflows."""
     try:
         fingerprint=identity('inspection')
         target=record_path()

@@ -161,7 +161,7 @@ def report(a, b=None, c=None):
               'Next experiment: complete this fixed comparison first, then independently audit recurring confusions and '
               'ambiguous gold labels. A separately frozen two-stage routability/selection experiment may follow; '
               'do not redesign no_match during Phase 4C.', '',
-              'Configuration, exact templates, boundaries, source links and Ghostty commands: [PHASE4C.md](PHASE4C.md).', '']
+              'Configuration, boundaries and reproduction commands: [research component README](../README.md).', '']
     return '\n'.join(lines)
 
 

@@ -55,7 +55,7 @@ policies cannot acquire those effects merely by declaring them.
 
 `natta route "Commit Example"` reports commit/project/policy and never executes.
 `natta execute --json "Commit Example"` returns authorization_required, without a handler
-or snapshot sequence. `natta execute --confirm "Commit Example"` routes once, resolves
+or snapshot sequence. `natta execute --confirm --expect commit "Commit Example"` routes once, resolves
 and validates locally, snapshots, invokes one static commit binding, snapshots
 again and checks effects. Custom-message wording, Git flags, push/amend/other
 unsupported operations must be no_match; raw request text is never forwarded to
@@ -134,7 +134,7 @@ the additive config/routing-commit-v2.json defines only the new capability.
 Historical prompt/schema domains remain separate. Public corpora are sanitized
 and their control hashes regenerated; private result artifacts are excluded.
 
-planner_provider_v2 adds commit through phase8a-commit-v2 and reuses the existing
+The `planner_provider.COMMIT_V2` revision adds commit through phase8a-commit-v2 and reuses the existing
 isolated planner transport. Its separate policy rejects whole goals containing
 push, custom messages, arbitrary Git flags, shell or unsupported mutation. Plans
 remain max4, ordered, non-executing. Commit contributes explicit authorization,
@@ -177,7 +177,7 @@ python3 -B commit_evaluation.py planner --allow-external-requests 20 \
 
 ## Host acceptance — disposable first
 
-This zero-Luna procedure creates only a temporary Git fixture, proves default and
+This model-free procedure creates only a temporary Git fixture, proves default and
 custom commit messages, mixed changes, clean no_changes, verification and cleanup:
 
 ```sh
@@ -190,7 +190,7 @@ passes, knowingly choose ONE real project whose ALL current changes you want
 committed. Do not choose merely because it is dirty. Review diffs yourself first;
 Natta performs no content review. This example selects Example; substitute sample if
 that is the intended project. Review takes a protected snapshot, prints Git status,
-runs the semantic command without --confirm (one Luna request), proves denial and
+runs the semantic command without --confirm (one semantic-model request), proves denial and
 unchanged protected state, and writes one private external review record:
 
 ```sh
@@ -200,9 +200,9 @@ python3 -B commit_acceptance.py review "$natta_commit_project" \
 ```
 
 Stop here and inspect the displayed changes/default message. Only if you want
-that ONE real commit, run the separate explicitly authorized step (one more Luna
+that ONE real commit, run the separate explicitly authorized step (one more semantic-model
 request). It refuses if protected state changed since review, invokes semantic
-execute --confirm, checks parent/hash/message/identity/effects and local remote
+execute --confirm --expect commit, checks parent/hash/message/identity/effects and local remote
 tracking refs, and never pushes or undoes the commit:
 
 ```sh
@@ -210,12 +210,14 @@ python3 -B commit_acceptance.py confirm \
   --state "$PWD/evaluation/commit-host-review.json" --confirm-real-project
 ```
 
-No real app commits or Luna requests are run during development. Push, partial
+No real app commits or semantic-model requests are run during development. Push, partial
 staging, amend/revert/reset/checkout, AI messages, semantic custom messages
 and submodule workflows remain future work. Bounded compound execution/natta do
 is implemented separately and reuses the commit handler and verification.
 
 Interactive semantic authorization is terminal-only and continues the same frozen
-resolved action without a second Luna call. --json/non-TTY never prompt; --confirm
-preauthorizes one invocation. Direct commands stay noninteractive. See
+resolved action without a second semantic-model call. --json/non-TTY never prompt.
+`execute --confirm` preauthorizes one invocation only together with `--expect
+CAPABILITY`, and only when the route selects exactly that capability; `do --confirm`
+cannot preauthorize a plan with explicit steps. Direct commands stay noninteractive. See
 [authorization contract](EXECUTION_GATE.md#interactive-authorization).
