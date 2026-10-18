@@ -7,7 +7,7 @@ class Natta < Formula
   desc "Local-first deterministic control plane for registered development projects"
   homepage "https://github.com/JuanVeranoMesa/natta-toolkit"
   url "https://github.com/JuanVeranoMesa/natta-toolkit/archive/refs/tags/v1.1.0.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "2f2c60af984f97f750bed21f7c2bf56a556a0f335b30c8e9cc24a346623d0bcf"
   license "MIT"
   head "https://github.com/JuanVeranoMesa/natta-toolkit.git", branch: "main"
 
