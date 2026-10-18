@@ -10,11 +10,9 @@ plumbing and the config flags used by commits. Command presence alone is not a
 compatibility guarantee. No fabricated Git/Xcode minimum version is claimed.
 
 Python versions on which the full test suite and `natta --help` have actually run
-(macOS): 3.12, 3.13 and 3.14. Python 3.11 is the documented minimum and uses the
-same eager-annotation semantics as 3.12/3.13, but no 3.11 run has been recorded
-yet. The GitHub Actions workflow `.github/workflows/tests.yml` runs the suite,
-`natta.py --help` and a whole-tree `git diff --check` on Python 3.11 and 3.14
-(macOS); a 3.11 run counts as recorded once that workflow has passed.
+(macOS): 3.11 (the documented minimum) and 3.14 in the GitHub Actions workflow
+`.github/workflows/tests.yml`, which also runs a whole-tree `git diff --check`, and
+3.12, 3.13 and 3.14 locally.
 
 The POSIX `bin/natta` wrapper requires `sh`, `dirname`, and `python3` on PATH (or
 an interpreter named by `NATTA_PYTHON`); it refuses interpreters older than 3.11
